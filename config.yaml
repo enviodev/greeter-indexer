@@ -11,6 +11,7 @@ contracts:
       - event: NewGreeting
         requiredEntities:
           - name: User
+        isAsync: true
       - event: ClearGreeting
         requiredEntities:
           - name: User

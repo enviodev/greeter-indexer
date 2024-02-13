@@ -117,8 +117,6 @@ module GreeterContract = {
     // Silence the "this statement never returns (or has an unsound type.)" warning in the case that the user hasn't specified `isAsync` in their config file yet.
     @warning("-21") @genType
     let handlerAsync = handler => {
-      Js.Exn.raiseError("Please add 'isAsync: true' to your config.yaml file to enable Async Mode.")
-
       newGreetingHandler :=
         Some(Async({handler, contextGetter: ctx => ctx.getHandlerContextAsync()}))
     }
