@@ -38,26 +38,28 @@ GreeterContract_NewGreeting_handler(({ event, context }) => {
   //Construct the userEntity that is to be set in the DB
   const userEntity: UserEntity = currentUserEntity
     ? //In the case there is an existing "User" entity, update its
-      //latestGreeting value, increment the numberOfGreetings and append latestGreeting
-      //to the array of greetings
-      {
-        id: userId,
-        latestGreeting,
-        numberOfGreetings: currentUserEntity.numberOfGreetings + 1,
-        greetings: [...currentUserEntity.greetings, latestGreeting],
-      }
+    //latestGreeting value, increment the numberOfGreetings and append latestGreeting
+    //to the array of greetings
+    {
+      id: userId,
+      latestGreeting,
+      numberOfGreetings: currentUserEntity.numberOfGreetings + 1,
+      greetings: [...currentUserEntity.greetings, latestGreeting],
+    }
     : //In the case where there is no User entity at this id. Construct a new one with
-      //the current latest greeting, an initial number of greetings as "1" and an initial list
-      //of greetings with only the latest greeting.
-      {
-        id: userId,
-        latestGreeting,
-        numberOfGreetings: 1,
-        greetings: [latestGreeting],
-      };
+    //the current latest greeting, an initial number of greetings as "1" and an initial list
+    //of greetings with only the latest greeting.
+    {
+      id: userId,
+      latestGreeting,
+      numberOfGreetings: 1,
+      greetings: [latestGreeting],
+    };
 
   //Set the User entity in the DB with the constructed values
   context.User.set(userEntity);
+
+  throw Error("test error")
 });
 
 /**

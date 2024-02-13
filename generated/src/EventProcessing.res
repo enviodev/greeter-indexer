@@ -130,12 +130,18 @@ let handleEvent = (
       //Since loaders and previous handlers have already run
       let context = contextGetter(context)
       handler(~event, ~context)
-      cb()->ignore
+      cb(Ok())->ignore
     | Async({handler, contextGetter}) =>
       //Call the context getter here, ensures no stale values in the context
       //Since loaders and previous handlers have already run
       let context = contextGetter(context)
-      handler(~event, ~context)->Promise.thenResolve(cb)->ignore
+      handler(~event, ~context)
+      ->Promise.thenResolve(_ => cb(Ok()))
+      ->Promise.catch(exn => {
+        cb(Error(exn))
+        Promise.reject(exn)
+      })
+      ->ignore
     }
   } catch {
   // NOTE: we are only catching javascript errors here - please see docs on how to catch rescript errors too: https://rescript-lang.org/docs/manual/latest/exception
@@ -150,7 +156,7 @@ let handleEvent = (
     let errorMessage = errorObj->Obj.magic
 
     context.log.errorWithExn(Js.Exn.asJsExn(userCodeException), errorMessage)
-    cb()->ignore
+    cb(Error(userCodeException))->ignore
   }
 }
 
@@ -476,8 +482,17 @@ let processEventBatch = async (
     event,
   ) => {
     await previousPromise
-    await Promise.make((resolve, _reject) =>
-      event->eventRouter(~inMemoryStore, ~cb={() => resolve(. ())})
+    await Promise.make((resolve, reject) =>
+      event->eventRouter(
+        ~inMemoryStore,
+        ~cb={
+          res =>
+            switch res {
+            | Ok() => resolve(. ())
+            | Error(exn) => reject(. exn)
+            }
+        },
+      )
     )
   })
 
