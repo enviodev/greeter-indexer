@@ -195,12 +195,34 @@ module ResponseTypes = {
     block?: blockData,
     log: logData,
   }
+  type rollbackGuard = {
+    /** Block int of the last scanned block */
+    blockint: int,
+    /** Block timestamp of the last scanned block */
+    timestamp: int,
+    /** Block hash of the last scanned block */
+    hash: string,
+    /**
+   * Block int of the first scanned block in memory.
+   *
+   * This might not be the first scanned block. It only includes blocks that are in memory (possible to be rolled back).
+   */
+    firstBlockint: int,
+    /**
+   * Parent hash of the first scanned block in memory.
+   *
+   * This might not be the first scanned block. It only includes blocks that are in memory (possible to be rolled back).
+   */
+    firstParentHash: string,
+  }
 
   type response = {
-    archiveHeight: int,
+    //Archive Height is only None if height is 0
+    archiveHeight: option<int>,
     nextBlock: int,
     totalExecutionTime: int,
     events: array<event>,
+    rollbackGuard: option<rollbackGuard>,
   }
 }
 

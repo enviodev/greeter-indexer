@@ -192,7 +192,7 @@ module LogsQuery = {
       let page: logsQueryPage = {
         items,
         nextBlock,
-        archiveHeight,
+        archiveHeight: archiveHeight->Belt.Option.getWithDefault(0), //Archive Height is only None if height is 0
         events: res.events,
       }
 
