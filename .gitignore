@@ -25,10 +25,13 @@ lib/*
 .merlin
 .bsb.lock
 /node_modules/
+node_modules/
 benchmarks/
 artifacts
 cache
 build
 *.bs.js
+*.res.js
 *.gen.ts
+lib/
 # generated
