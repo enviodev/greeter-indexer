@@ -1,5 +1,5 @@
 open Belt
-RegisterHandlers.registerAllHandlers()
+RegisterHandlers.registerAllHandlers()->ignore
 
 /***** TAKE NOTE ******
 This is a hack to get genType to work!

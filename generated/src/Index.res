@@ -30,7 +30,7 @@ let overrideConsoleLog: Pino.t => unit = %raw(`function (logger) {
 `)
 overrideConsoleLog(Logging.logger)
 
-RegisterHandlers.registerAllHandlers()
+RegisterHandlers.registerAllHandlers()->ignore
 
 open Express
 

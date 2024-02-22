@@ -13,14 +13,14 @@
       "Js": "Js"
     },
     "generatedFileExtension": ".gen.ts",
-    "module": "commonjs",
+    "module": "es6",
     "debug": {
       "all": false,
       "basic": false
     }
   },
   "package-specs": {
-    "module": "commonjs",
+    "module": "es6",
     "in-source": true
   },
   "suffix": ".bs.js",

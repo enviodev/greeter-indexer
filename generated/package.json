@@ -1,13 +1,14 @@
 {
   "name": "generated",
   "version": "0.1.0",
+  "type": "module",
   "scripts": {
     "clean": "rescript clean -with-deps",
     "build": "rescript build -with-deps",
     "watch": "rescript build -with-deps -w",
     "db-up": "node -e 'require(`./src/Migrations.bs.js`).runUpMigrations(true)'",
     "db-down": "node -e 'require(`./src/Migrations.bs.js`).runDownMigrations(true, true)'",
-    "db-setup": "node -e 'require(`./src/Migrations.bs.js`).setupDb(true)'",
+    "db-setup": "node -e 'import(`./src/Migrations.bs.js`).then(m => m.setupDb(true))'",
     "db-track-tables": "node -e 'require(`./src/TrackTables.bs.js`).trackAllTables()'"
   },
   "keywords": [
