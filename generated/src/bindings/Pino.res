@@ -95,8 +95,8 @@ type options = {
   messageKey?: string,
 }
 
-@module external make: options => t = "pino"
-@module external makeWithOptionsAndTransport: (options, Transport.t) => t = "pino"
+@module("pino") external make: options => t = "default"
+@module("pino") external makeWithOptionsAndTransport: (options, Transport.t) => t = "default"
 
 type childParams
 let createChildParams: 'a => childParams = Obj.magic

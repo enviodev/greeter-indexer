@@ -9,7 +9,7 @@ module Demo = {
       let interval = Js.Global.setInterval(() => {
         setState(prev => prev + 1)
       }, 500)
-      let _ = Js.Global.setInterval(() => Console.log("test"), 200)
+      let _ = Js.Global.setInterval(() => Js.log("test"), 200)
       Some(() => Js.Global.clearInterval(interval))
     })
     <Box>
@@ -19,4 +19,5 @@ module Demo = {
   }
 }
 
-render(<Demo />)->ignore
+
+render(<Demo />, ~options={})->ignore

@@ -1,8 +1,9 @@
-%%raw(`globalThis.fetch = require('node-fetch')`)
+// %%raw(`globalThis.fetch = require('node-fetch')`)
 
 /**
  * This function can be used to override the console.log (and related functions for users). This means these logs will also be available to the user
  */
+Js.log("top of the file")
 let overrideConsoleLog: Pino.t => unit = %raw(`function (logger) {
     console.log = function() {
       var args = Array.from(arguments);
@@ -29,12 +30,10 @@ let overrideConsoleLog: Pino.t => unit = %raw(`function (logger) {
   }
 `)
 overrideConsoleLog(Logging.logger)
-
-RegisterHandlers.registerAllHandlers()->ignore
-
+Js.log("calling express")
 open Express
 
-let app = expressCjs()
+let app = express()
 
 app->use(jsonMiddleware())
 
@@ -61,32 +60,41 @@ app->get("/metrics", (_req, res) => {
 type args = {@as("sync-from-raw-events") syncFromRawEvents?: bool}
 
 type mainArgs = Yargs.parsedArgs<args>
-
+Js.log("calling main")
 let main = async () => {
-  // let mainArgs: mainArgs = Node.Process.argv->Yargs.hideBin->Yargs.yargs->Yargs.argv
-  //
-  // let shouldSyncFromRawEvents = mainArgs.syncFromRawEvents->Belt.Option.getWithDefault(false)
-  //
-  // EventSyncing.startSyncingAllEvents(~shouldSyncFromRawEvents)
-  let chainManager = await ChainManager.makeFromDbState(~configs=Config.config)
-
-  let globalState: GlobalState.t = {
-    currentlyProcessingBatch: false,
-    chainManager,
-    maxBatchSize: Env.maxProcessBatchSize,
-    maxPerChainQueueSize: Env.maxPerChainQueueSize,
-  }
-
-  let gsManager = globalState->GlobalStateManager.make
-
-  gsManager->GlobalStateManager.dispatchTask(NextQuery(CheckAllChains))
-
-  /*
+  try {
+    Js.log("registering")
+    await RegisterHandlers.registerAllHandlers()
+    Js.log("2")
+    // let mainArgs: mainArgs = Node.Process.argv->Yargs.hideBin->Yargs.yargs->Yargs.argv
+    //
+    // let shouldSyncFromRawEvents = mainArgs.syncFromRawEvents->Belt.Option.getWithDefault(false)
+    //
+    // EventSyncing.startSyncingAllEvents(~shouldSyncFromRawEvents)
+    let chainManager = await ChainManager.makeFromDbState(~configs=Config.config)
+    Js.log("3")
+    let globalState: GlobalState.t = {
+      currentlyProcessingBatch: false,
+      chainManager,
+      maxBatchSize: Env.maxProcessBatchSize,
+      maxPerChainQueueSize: Env.maxPerChainQueueSize,
+    }
+    Js.log("4")
+    let gsManager = globalState->GlobalStateManager.make
+    Js.log("5")
+    gsManager->GlobalStateManager.dispatchTask(NextQuery(CheckAllChains))
+    Js.log("6")
+    /*
     NOTE:
       This `ProcessEventBatch` dispatch shouldn't be necessary but we are adding for safety, it should immediately return doing 
       nothing since there is no events on the queues.
  */
-  gsManager->GlobalStateManager.dispatchTask(ProcessEventBatch)
+
+    gsManager->GlobalStateManager.dispatchTask(ProcessEventBatch)
+    Js.log("7")
+  } catch {
+  | e => e->ErrorHandling.make(~msg="global catch")->ErrorHandling.log
+  }
 }
 
 main()->ignore

@@ -31,6 +31,7 @@ artifacts
 cache
 build
 *.bs.js
+*.bs.mjs
 *.res.js
 *.gen.ts
 lib/

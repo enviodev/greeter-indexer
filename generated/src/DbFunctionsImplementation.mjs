@@ -1,12 +1,12 @@
 // db operations for raw_events:
 const MAX_ITEMS_PER_QUERY = 500;
 
-module.exports.readLatestSyncedEventOnChainId = (sql, chainId) => sql`
+export const readLatestSyncedEventOnChainId = (sql, chainId) => sql`
   SELECT *
   FROM public.event_sync_state
   WHERE chain_id = ${chainId}`;
 
-module.exports.batchSetEventSyncState = (sql, entityDataArray) => {
+export const batchSetEventSyncState = (sql, entityDataArray) => {
   return sql`
     INSERT INTO public.event_sync_state
   ${sql(
@@ -27,7 +27,7 @@ module.exports.batchSetEventSyncState = (sql, entityDataArray) => {
     `;
 };
 
-module.exports.setChainMetadata = (sql, entityDataArray) => {
+export const setChainMetadata = (sql, entityDataArray) => {
   return (sql`
     INSERT INTO public.chain_metadata
   ${sql(
@@ -40,13 +40,13 @@ module.exports.setChainMetadata = (sql, entityDataArray) => {
   SET
   "chain_id" = EXCLUDED."chain_id",
   "block_height" = EXCLUDED."block_height";`).then(res => {
-    
+
   }).catch(err => {
     console.log("errored", err)
   });
 };
 
-module.exports.readLatestRawEventsBlockNumberProcessedOnChainId = (
+export const readLatestRawEventsBlockNumberProcessedOnChainId = (
   sql,
   chainId
 ) => sql`
@@ -56,12 +56,12 @@ module.exports.readLatestRawEventsBlockNumberProcessedOnChainId = (
   ORDER BY event_id DESC
   LIMIT 1;`;
 
-module.exports.readRawEventsEntities = (sql, entityIdArray) => sql`
+export const readRawEventsEntities = (sql, entityIdArray) => sql`
   SELECT *
   FROM "public"."raw_events"
   WHERE (chain_id, event_id) IN ${sql(entityIdArray)}`;
 
-module.exports.getRawEventsPageGtOrEqEventId = (
+export const getRawEventsPageGtOrEqEventId = (
   sql,
   chainId,
   eventId,
@@ -77,7 +77,7 @@ module.exports.getRawEventsPageGtOrEqEventId = (
   LIMIT ${limit}
 `;
 
-module.exports.getRawEventsPageWithinEventIdRangeInclusive = (
+export const getRawEventsPageWithinEventIdRangeInclusive = (
   sql,
   chainId,
   fromEventIdInclusive,
@@ -145,10 +145,10 @@ const chunkBatchQuery = (
   return Promise.all(promises).catch(e => {
     console.error("Sql query failed", e);
     throw e;
-    });
+  });
 };
 
-module.exports.batchSetRawEvents = (sql, entityDataArray) => {
+export const batchSetRawEvents = (sql, entityDataArray) => {
   return chunkBatchQuery(
     sql,
     entityDataArray,
@@ -156,13 +156,13 @@ module.exports.batchSetRawEvents = (sql, entityDataArray) => {
   );
 };
 
-module.exports.batchDeleteRawEvents = (sql, entityIdArray) => sql`
+export const batchDeleteRawEvents = (sql, entityIdArray) => sql`
   DELETE
   FROM "public"."raw_events"
   WHERE (chain_id, event_id) IN ${sql(entityIdArray)};`;
 // end db operations for raw_events
 
-module.exports.readDynamicContractsOnChainIdAtOrBeforeBlock = (
+export const readDynamicContractsOnChainIdAtOrBeforeBlock = (
   sql,
   chainId,
   block_number
@@ -174,7 +174,7 @@ module.exports.readDynamicContractsOnChainIdAtOrBeforeBlock = (
   WHERE e.block_number <= ${block_number} AND e.chain_id = ${chainId};`;
 
 //Start db operations dynamic_contract_registry
-module.exports.readDynamicContractRegistryEntities = (
+export const readDynamicContractRegistryEntities = (
   sql,
   entityIdArray
 ) => sql`
@@ -200,7 +200,7 @@ const batchSetDynamicContractRegistryCore = (sql, entityDataArray) => {
     "contract_type" = EXCLUDED."contract_type";`;
 };
 
-module.exports.batchSetDynamicContractRegistry = (sql, entityDataArray) => {
+export const batchSetDynamicContractRegistry = (sql, entityDataArray) => {
   return chunkBatchQuery(
     sql,
     entityDataArray,
@@ -208,7 +208,7 @@ module.exports.batchSetDynamicContractRegistry = (sql, entityDataArray) => {
   );
 };
 
-module.exports.batchDeleteDynamicContractRegistry = (sql, entityIdArray) => sql`
+export const batchDeleteDynamicContractRegistry = (sql, entityIdArray) => sql`
   DELETE
   FROM "public"."dynamic_contract_registry"
   WHERE (chain_id, contract_address) IN ${sql(entityIdArray)};`;
@@ -218,7 +218,7 @@ module.exports.batchDeleteDynamicContractRegistry = (sql, entityIdArray) => sql`
 // DB operations for User:
 //////////////////////////////////////////////
 
-module.exports.readUserEntities = (sql, entityIdArray) => sql`
+export const readUserEntities = (sql, entityIdArray) => sql`
 SELECT 
 "numberOfGreetings",
 "latestGreeting",
@@ -245,16 +245,16 @@ ${sql(entityDataArray,
   `;
 }
 
-module.exports.batchSetUser = (sql, entityDataArray) => {
+export const batchSetUser = (sql, entityDataArray) => {
 
   return chunkBatchQuery(
-    sql, 
-    entityDataArray, 
+    sql,
+    entityDataArray,
     batchSetUserCore
   );
 }
 
-module.exports.batchDeleteUser = (sql, entityIdArray) => sql`
+export const batchDeleteUser = (sql, entityIdArray) => sql`
 DELETE
 FROM "public"."User"
 WHERE id IN ${sql(entityIdArray)};`
