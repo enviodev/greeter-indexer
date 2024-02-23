@@ -11,10 +11,13 @@ type blockRangeFetchResponse = ChainWorkerTypes.blockRangeFetchResponse<
   HyperSyncWorker.t,
   RpcWorker.t,
 >
+
+type latestProcessedBlocks = ChainMap.t<int>
+
 type action =
   | BlockRangeResponse(chain, blockRangeFetchResponse)
   | SetFetchStateCurrentBlockHeight(chain, int)
-  | EventBatchProcessed(EventProcessing.loadResponse<unit>)
+  | EventBatchProcessed(EventProcessing.loadResponse<latestProcessedBlocks>)
   | SetCurrentlyProcessing(bool)
   | SetCurrentlyFetchingBatch(chain, bool)
   | SetFetchState(chain, FetchState.t)
@@ -92,12 +95,18 @@ let handleBlockRangeResponse = (state, ~chain, ~response: blockRangeFetchRespons
       ~id=fetchStateRegisterId,
     )
     ->Utils.unwrapResultExn
+  let chainFetcher = chainFetcher->updateChainFetcherCurrentBlockHeight(~currentBlockHeight)
+  let firstEventBlockNumber = switch parsedQueueItems[0] {
+  | Some(item) if chainFetcher.firstEventBlockNumber == 0 => item.blockNumber
+  | _ => chainFetcher.firstEventBlockNumber
+  }
 
   let updatedChainFetcher = {
-    ...chainFetcher->updateChainFetcherCurrentBlockHeight(~currentBlockHeight),
+    ...chainFetcher,
     chainWorker: worker,
     fetchState: updatedFetchState,
     isFetchingBatch: false,
+    firstEventBlockNumber,
   }
 
   let updatedFetchers = state.chainManager.chainFetchers->ChainMap.set(chain, updatedChainFetcher)
@@ -125,12 +134,26 @@ let updateChainFetcher = (chainFetcherUpdate, ~state, ~chain) => {
   )
 }
 
+let updateLatestProcessedBlocks = (~state: t, ~latestProcessedBlocks: latestProcessedBlocks) => {
+  {
+    ...state,
+    chainManager: {
+      ...state.chainManager,
+      chainFetchers: state.chainManager.chainFetchers->ChainMap.map(cf => {
+        ...cf,
+        latestProcessedBlock: latestProcessedBlocks->ChainMap.get(cf.chainConfig.chain),
+      }),
+    },
+  }
+}
+
 let actionReducer = (state: t, action: action) => {
   switch action {
   | SetFetchStateCurrentBlockHeight(chain, currentBlockHeight) =>
     state->handleSetCurrentBlockHeight(~chain, ~currentBlockHeight)
   | BlockRangeResponse(chain, response) => state->handleBlockRangeResponse(~chain, ~response)
   | EventBatchProcessed({
+      val,
       dynamicContractRegistrations: Some({registrationsReversed, unprocessedBatchReversed}),
     }) =>
     let updatedArbQueue =
@@ -191,13 +214,12 @@ let actionReducer = (state: t, action: action) => {
 
       Prometheus.setFetchedEventsUntilHeight(~blockNumber=highestFetchedBlockOnChain, ~chain)
     })
-
+    let nextState = updateLatestProcessedBlocks(~state=nextState, ~latestProcessedBlocks=val)
     (nextState, nextTasks)
 
-  | EventBatchProcessed({dynamicContractRegistrations: None}) => (
-      {...state, currentlyProcessingBatch: false},
-      [ProcessEventBatch],
-    )
+  | EventBatchProcessed({val, dynamicContractRegistrations: None}) =>
+    let nextState = updateLatestProcessedBlocks(~state, ~latestProcessedBlocks=val)
+    ({...nextState, currentlyProcessingBatch: false}, [ProcessEventBatch])
   | SetCurrentlyProcessing(currentlyProcessingBatch) => ({...state, currentlyProcessingBatch}, [])
   | SetIsFetchingAtHead(chain, isFetchingAtHead) =>
     updateChainFetcher(
@@ -320,11 +342,14 @@ let taskReducer = (state: t, task: task, ~dispatchAction) => {
             ~contractName,
           )
         }
+        let latestProcessedBlocks =
+          state.chainManager.chainFetchers->ChainMap.map(cf => cf.latestProcessedBlock)
         let inMemoryStore = IO.InMemoryStore.make()
         EventProcessing.processEventBatch(
           ~eventBatch=batch,
           ~inMemoryStore,
           ~checkContractIsRegistered,
+          ~latestProcessedBlocks,
         )
         ->Promise.thenResolve(res =>
           switch res {

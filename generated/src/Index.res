@@ -3,7 +3,6 @@
 /**
  * This function can be used to override the console.log (and related functions for users). This means these logs will also be available to the user
  */
-Js.log("top of the file")
 let overrideConsoleLog: Pino.t => unit = %raw(`function (logger) {
     console.log = function() {
       var args = Array.from(arguments);
@@ -29,7 +28,7 @@ let overrideConsoleLog: Pino.t => unit = %raw(`function (logger) {
     };
   }
 `)
-overrideConsoleLog(Logging.logger)
+// overrideConsoleLog(Logging.logger)
 Js.log("calling express")
 open Express
 
@@ -57,33 +56,57 @@ app->get("/metrics", (_req, res) => {
     ->Promise.thenResolve(metrics => res->endWithData(metrics))
 })
 
-type args = {@as("sync-from-raw-events") syncFromRawEvents?: bool}
+type args = {
+  @as("sync-from-raw-events") syncFromRawEvents?: bool,
+  @as("terminator-off") terminatorOff?: bool,
+}
+
+type process
+@val external process: process = "process"
+@get external argv: process => 'a = "argv"
 
 type mainArgs = Yargs.parsedArgs<args>
-Js.log("calling main")
+
+let makeAppState = (globalState: GlobalState.t): TerminalIndex.App.appState => {
+  open Belt
+  {
+    chainData: globalState.chainManager.chainFetchers
+    ->ChainMap.values
+    ->Array.map((cf): TerminalIndex.App.chain => {
+      latestFetchedBlockNumber: cf.fetchState->FetchState.getLatestFullyFetchedBlock,
+      firstEventBlockNumber: cf.firstEventBlockNumber,
+      chainId: cf.chainConfig.chain->ChainMap.Chain.toChainId,
+      currentBlockHeight: cf.currentBlockHeight,
+      latestProcessedBlock: cf.latestProcessedBlock,
+    }),
+  }
+}
+
 let main = async () => {
   try {
-    Js.log("registering")
     await RegisterHandlers.registerAllHandlers()
-    Js.log("2")
-    // let mainArgs: mainArgs = Node.Process.argv->Yargs.hideBin->Yargs.yargs->Yargs.argv
-    //
+    let mainArgs: mainArgs = process->argv->Yargs.hideBin->Yargs.yargs->Yargs.argv
+    let shouldUseTerminator = !(mainArgs.terminatorOff->Belt.Option.getWithDefault(false))
     // let shouldSyncFromRawEvents = mainArgs.syncFromRawEvents->Belt.Option.getWithDefault(false)
-    //
-    // EventSyncing.startSyncingAllEvents(~shouldSyncFromRawEvents)
+
     let chainManager = await ChainManager.makeFromDbState(~configs=Config.config)
-    Js.log("3")
     let globalState: GlobalState.t = {
       currentlyProcessingBatch: false,
       chainManager,
       maxBatchSize: Env.maxProcessBatchSize,
       maxPerChainQueueSize: Env.maxPerChainQueueSize,
     }
-    Js.log("4")
-    let gsManager = globalState->GlobalStateManager.make
-    Js.log("5")
+    let stateUpdatedHook = if shouldUseTerminator {
+      // let (globalState, setGlobalState) = React.useState(_ => globalState)
+
+      let rerender = TerminalIndex.startApp(makeAppState(globalState))
+
+      Some(globalState => globalState->makeAppState->rerender)
+    } else {
+      None
+    }
+    let gsManager = globalState->GlobalStateManager.make(~stateUpdatedHook?)
     gsManager->GlobalStateManager.dispatchTask(NextQuery(CheckAllChains))
-    Js.log("6")
     /*
     NOTE:
       This `ProcessEventBatch` dispatch shouldn't be necessary but we are adding for safety, it should immediately return doing 
@@ -91,7 +114,6 @@ let main = async () => {
  */
 
     gsManager->GlobalStateManager.dispatchTask(ProcessEventBatch)
-    Js.log("7")
   } catch {
   | e => e->ErrorHandling.make(~msg="global catch")->ErrorHandling.log
   }

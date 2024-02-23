@@ -15,7 +15,7 @@ type options = {
   patchConsole?: bool,
   debug?: bool,
 }
-@module("ink") external render: (~options: options=?, React.element) => instance = "render"
+@module("ink") external render: (React.element, ~options: options=?) => instance = "render"
 type measurement = {width: int, height: int}
 
 @module("ink")

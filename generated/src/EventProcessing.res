@@ -70,6 +70,8 @@ let handleEvent = (
   ~event,
   ~eventName,
   ~cb,
+  ~latestProcessedBlocks,
+  ~chain,
 ) => {
   event->updateEventSyncState(~chainId, ~inMemoryStore)
 
@@ -82,6 +84,8 @@ let handleEvent = (
     ~logger=context.logger,
   )
 
+  let latestProcessedBlocks = latestProcessedBlocks->ChainMap.set(chain, event.blockNumber)
+
   switch handlerWithContextGetter {
   | Sync({handler, contextGetter}) =>
     //Call the context getter here, ensures no stale values in the context
@@ -89,14 +93,14 @@ let handleEvent = (
     let handlerContext = contextGetter(context)
     switch handler(~event, ~context=handlerContext) {
     | exception exn => Error(makeErr(exn))
-    | () => Ok()
+    | () => Ok(latestProcessedBlocks)
     }->cb
   | Async({handler, contextGetter}) =>
     //Call the context getter here, ensures no stale values in the context
     //Since loaders and previous handlers have already run
     let handlerContext = contextGetter(context)
     handler(~event, ~context=handlerContext)
-    ->Promise.thenResolve(_ => cb(Ok()))
+    ->Promise.thenResolve(_ => cb(Ok(latestProcessedBlocks)))
     ->Promise.catch(exn => {
       cb(Error(makeErr(exn)))
       Promise.resolve()
@@ -105,8 +109,15 @@ let handleEvent = (
   }
 }
 
-let eventRouter = (item: Context.eventRouterEventAndContext, ~inMemoryStore, ~cb) => {
+let eventRouter = (
+  item: Context.eventRouterEventAndContext,
+  ~inMemoryStore,
+  ~cb,
+  ~latestProcessedBlocks: ChainMap.t<int>,
+) => {
   let {event, chainId} = item
+
+  let chain = chainId->ChainMap.Chain.fromChainId->Utils.unwrapResultExn //TODO make item have chain insteaad of chainId
 
   switch event {
   | GreeterContract_NewGreetingWithContext(event, context) =>
@@ -119,6 +130,8 @@ let eventRouter = (item: Context.eventRouterEventAndContext, ~inMemoryStore, ~cb
       ~inMemoryStore,
       ~cb,
       ~context,
+      ~latestProcessedBlocks,
+      ~chain,
     )
 
   | GreeterContract_ClearGreetingWithContext(event, context) =>
@@ -131,6 +144,8 @@ let eventRouter = (item: Context.eventRouterEventAndContext, ~inMemoryStore, ~cb
       ~inMemoryStore,
       ~cb,
       ~context,
+      ~latestProcessedBlocks,
+      ~chain,
     )
   }
 }
@@ -403,6 +418,7 @@ let registerProcessEventBatchMetrics = (
 let processEventBatch = async (
   ~eventBatch: list<Types.eventBatchQueueItem>,
   ~inMemoryStore: IO.InMemoryStore.t,
+  ~latestProcessedBlocks: ChainMap.t<int>,
   ~checkContractIsRegistered,
 ) => {
   let logger = Logging.createChild(
@@ -417,19 +433,19 @@ let processEventBatch = async (
   | Ok({val: eventBatchAndContext, dynamicContractRegistrations}) =>
     let elapsedAfterLoad = timeRef->Hrtime.timeSince->Hrtime.toMillis->Hrtime.intFromMillis
 
-    switch await eventBatchAndContext->Belt.Array.reduce(Promise.resolve(Ok()), async (
-      previousPromise,
-      event,
-    ) => {
-      switch await previousPromise {
-      | Error(e) => Error(e)
-      | Ok() =>
-        await Promise.make((resolve, _reject) =>
-          event->eventRouter(~inMemoryStore, ~cb=res => resolve(. res))
-        )
-      }
-    }) {
-    | Ok() =>
+    switch await eventBatchAndContext->Belt.Array.reduce(
+      Promise.resolve(Ok(latestProcessedBlocks)),
+      async (previousPromise, event) => {
+        switch await previousPromise {
+        | Error(e) => Error(e)
+        | Ok(latestProcessedBlocks) =>
+          await Promise.make((resolve, _reject) =>
+            event->eventRouter(~inMemoryStore, ~cb=res => resolve(. res), ~latestProcessedBlocks)
+          )
+        }
+      },
+    ) {
+    | Ok(latestProcessedBlocks) =>
       let elapsedTimeAfterProcess = timeRef->Hrtime.timeSince->Hrtime.toMillis->Hrtime.intFromMillis
       switch await DbFunctions.sql->IO.executeBatch(~inMemoryStore) {
       | exception exn =>
@@ -446,7 +462,7 @@ let processEventBatch = async (
           ~dbWriteDuration=elapsedTimeAfterDbWrite - elapsedTimeAfterProcess,
         )
 
-        {val: (), dynamicContractRegistrations}->Ok
+        {val: latestProcessedBlocks, dynamicContractRegistrations}->Ok
       }
     | Error(e) => Error(e)
     }

@@ -1,23 +1,54 @@
 open Ink
+open Belt
 
-module Demo = {
+module App = {
+  type chain = {
+    chainId: int,
+    firstEventBlockNumber: int,
+    latestFetchedBlockNumber: int,
+    currentBlockHeight: int,
+    latestProcessedBlock: int,
+  }
+  type appState = {chainData: array<chain>}
+
   @react.component
-  let make = () => {
-    let (state, setState) = React.useState(_ => 1)
-
-    React.useEffect0(() => {
-      let interval = Js.Global.setInterval(() => {
-        setState(prev => prev + 1)
-      }, 500)
-      let _ = Js.Global.setInterval(() => Js.log("test"), 200)
-      Some(() => Js.Global.clearInterval(interval))
-    })
-    <Box>
-      <Text color=Primary> {state->React.int} </Text>
-      <ProgressBar.TextProgressBar current=state end=100 />
+  let make = (~appState: appState) => {
+    <Box flexDirection={Column}>
+      {appState.chainData
+      ->Array.mapWithIndex((
+        i,
+        {
+          firstEventBlockNumber,
+          latestFetchedBlockNumber,
+          currentBlockHeight,
+          latestProcessedBlock,
+          chainId,
+        },
+      ) => {
+        <Box key={i->Int.toString} flexDirection={Column}>
+          <Text color=Primary> {chainId->React.int} </Text>
+          <Text> {firstEventBlockNumber->React.int} </Text>
+          <Text> {latestProcessedBlock->React.int} </Text>
+          <Box flexDirection={Row}>
+            <Text> {latestFetchedBlockNumber->React.int} </Text>
+            <Text> {"/"->React.string} </Text>
+            <Text> {currentBlockHeight->React.int} </Text>
+          </Box>
+          <ProgressBar.TextProgressBar
+            current={latestFetchedBlockNumber - firstEventBlockNumber}
+            end={currentBlockHeight - firstEventBlockNumber}
+          />
+          <Newline />
+        </Box>
+      })
+      ->React.array}
     </Box>
   }
 }
 
-
-render(<Demo />, ~options={})->ignore
+let startApp = appState => {
+  let {rerender} = render(<App appState />)
+  appState => {
+    rerender(<App appState />)
+  }
+}

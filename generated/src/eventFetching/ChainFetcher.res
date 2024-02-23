@@ -8,6 +8,8 @@ type t = {
   currentBlockHeight: int,
   isFetchingBatch: bool,
   isFetchingAtHead: bool,
+  firstEventBlockNumber: int,
+  latestProcessedBlock: int,
   mutable lastBlockScannedHashes: ReorgDetection.LastBlockScannedHashes.t, // Dead code until we look at re-orgs again.
 }
 
@@ -17,6 +19,8 @@ let make = (
   ~lastBlockScannedHashes,
   ~contractAddressMapping,
   ~startBlock,
+  ~firstEventBlockNumber,
+  ~latestProcessedBlock,
   ~logger,
 ): t => {
   let (endpointDescription, chainWorker) = switch chainConfig.syncSource {
@@ -37,6 +41,8 @@ let make = (
     isFetchingBatch: false,
     isFetchingAtHead: false,
     fetchState,
+    firstEventBlockNumber,
+    latestProcessedBlock,
   }
 }
 
@@ -55,6 +61,8 @@ let makeFromConfig = (chainConfig: Config.chainConfig, ~lastBlockScannedHashes) 
     ~chainConfig,
     ~startBlock=chainConfig.startBlock,
     ~lastBlockScannedHashes,
+    ~firstEventBlockNumber=0,
+    ~latestProcessedBlock=0,
     ~logger,
   )
 }
@@ -95,7 +103,15 @@ let makeFromDbState = async (chainConfig: Config.chainConfig, ~lastBlockScannedH
     )
   )
 
-  make(~contractAddressMapping, ~chainConfig, ~startBlock, ~lastBlockScannedHashes, ~logger)
+  make(
+    ~contractAddressMapping,
+    ~chainConfig,
+    ~startBlock,
+    ~lastBlockScannedHashes,
+    ~firstEventBlockNumber=0, //TODO load from the database
+    ~latestProcessedBlock=0, //TODO load from the database
+    ~logger,
+  )
 }
 
 /**

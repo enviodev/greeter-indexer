@@ -22,6 +22,7 @@ let pinoPretty: Transport.transportTarget = {
   level: Config.userLogLevel, // NOTE: - this log level only is used if this transport is running in its own worker (ie there are multiple transports), otherwise it is overridden by the top level config.
   options: {
     "customLevels": logLevels,
+    "sync": true,
     /// NOTE: the lables have to be lower case! (pino pretty doesn't recognise them if there are upper case letters)
     /// https://www.npmjs.com/package/colorette#supported-colors - these are available colors
     "customColors": "fatal:bgRed,error:red,warn:yellow,info:green,udebug:bgBlue,uinfo:bgGreen,uwarn:bgYellow,uerror:bgRed,debug:blue,trace:gray",
@@ -39,7 +40,9 @@ let pinoFile: Transport.transportTarget = {
   level: Config.defaultFileLogLevel,
 }
 
-let logger = switch Config.logStrategy {
+let logger = makeSyncLogger(Config.userLogLevel, logLevels)
+
+let logger2 = switch Config.logStrategy {
 | EcsFile =>
   makeWithOptionsAndTransport(
     {

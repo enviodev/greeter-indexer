@@ -45,6 +45,13 @@ external levels: t => 'a = "levels"
 @ocaml.doc(`Identity function to help co-erce any type to a pino log message`)
 let createPinoMessage = (message): pinoMessageBlob => Obj.magic(message)
 
+/**
+Jank solution to make logs use console log wrather than stream.write so that ink 
+can render the logs statically.
+*/
+@module("./multistreamlogger.mjs")
+external makeSyncLogger: (logLevel, Js.Dict.t<int>) => t = "makelogger"
+
 module Transport = {
   type t
   type optionsObject

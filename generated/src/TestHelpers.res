@@ -134,7 +134,7 @@ module EventFunctions = {
 
       eventAndContext->EventProcessing.eventRouter(~inMemoryStore, ~cb=res =>
         switch res {
-        | Ok() =>
+        | Ok(_latestProcessedBlocks) =>
           //Now that the processing is finished. Simulate writing a batch
           //(Although in this case a batch of 1 event only) to the cloned mockDb
           mockDbClone->TestHelpers_MockDb.writeFromMemoryStore(~inMemoryStore)
@@ -166,6 +166,7 @@ module EventFunctions = {
         ~eventName,
         ~cb=mockDb => res(. mockDb),
         eventProcessorArgs,
+        ~latestProcessedBlocks=ChainMap.make(_chain => 0),
       )
     })
   }
@@ -190,6 +191,7 @@ module EventFunctions = {
       ~eventName,
       ~cb=mockDb => nextMockDb := Some(mockDb),
       eventProcessorArgs,
+      ~latestProcessedBlocks=ChainMap.make(_chain => 0),
     )
 
     //The callback is called synchronously so nextMockDb should be set.
