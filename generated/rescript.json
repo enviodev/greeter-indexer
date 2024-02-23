@@ -23,12 +23,12 @@
   },
   "package-specs": {
     "module": "es6",
-    "in-source": true
+    "in-source": false
   },
   "jsx": {
     "version": 4
   },
-  "suffix": ".bs.mjs",
+  "suffix": ".bs.js",
   "bs-dependencies": [
     "@ryyppy/rescript-promise",
     "rescript-envsafe",

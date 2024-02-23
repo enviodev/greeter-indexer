@@ -103,6 +103,6 @@ let createChildParams: 'a => childParams = Obj.magic
 @send external child: (t, childParams) => t = "child"
 
 module ECS = {
-  @module
-  external make: 'a => options = "@elastic/ecs-pino-format"
+  @module("@elastic/ecs-pino-format")
+  external make: 'a => options = "default"
 }

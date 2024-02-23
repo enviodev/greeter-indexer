@@ -10,7 +10,7 @@ let registerContractHandlers = async (
   ~handlerPathRelativeToConfig,
 ) => {
   try {
-    await import(handlerPathRelativeToGeneratedSrc)
+    await import("../../src/EventHandlers.ts")
   } catch {
   | exn =>
     let params = {
@@ -29,7 +29,7 @@ let registerContractHandlers = async (
 let registerAllHandlers = async () => {
   await registerContractHandlers(
     ~contractName="Greeter",
-     ~handlerPathRelativeToGeneratedSrc="../../src/EventHandlers.ts",
+    ~handlerPathRelativeToGeneratedSrc="../../src/EventHandlers.ts",
     ~handlerPathRelativeToConfig="src/EventHandlers.ts",
   )
 }
