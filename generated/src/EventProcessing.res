@@ -1,5 +1,31 @@
 open Belt
 
+module EventsProcessed = {
+  type eventsProcessed = {
+    numEventsProcessed: int,
+    latestProcessedBlock: option<int>,
+  }
+  type t = ChainMap.t<eventsProcessed>
+
+  let makeEmpty = () => {
+    ChainMap.make(_ => {numEventsProcessed: 0, latestProcessedBlock: None})
+  }
+
+  let makeFromChainManager = (cm: ChainManager.t): t => {
+    cm.chainFetchers->ChainMap.map(({numEventsProcessed, latestProcessedBlock}) => {
+      numEventsProcessed,
+      latestProcessedBlock,
+    })
+  }
+
+  let updateEventsProcessed = (self: t, ~chain, ~blockNumber) => {
+    self->ChainMap.update(chain, ({numEventsProcessed}) => {
+      numEventsProcessed: numEventsProcessed + 1,
+      latestProcessedBlock: Some(blockNumber),
+    })
+  }
+}
+
 let addEventToRawEvents = (
   event: Types.eventLog<'a>,
   ~inMemoryStore: IO.InMemoryStore.t,
@@ -70,7 +96,7 @@ let handleEvent = (
   ~event,
   ~eventName,
   ~cb,
-  ~latestProcessedBlocks,
+  ~latestProcessedBlocks: EventsProcessed.t,
   ~chain,
 ) => {
   event->updateEventSyncState(~chainId, ~inMemoryStore)
@@ -84,7 +110,11 @@ let handleEvent = (
     ~logger=context.logger,
   )
 
-  let latestProcessedBlocks = latestProcessedBlocks->ChainMap.set(chain, event.blockNumber)
+  let latestProcessedBlocks =
+    latestProcessedBlocks->EventsProcessed.updateEventsProcessed(
+      ~chain,
+      ~blockNumber=event.blockNumber,
+    )
 
   switch handlerWithContextGetter {
   | Sync({handler, contextGetter}) =>
@@ -113,7 +143,7 @@ let eventRouter = (
   item: Context.eventRouterEventAndContext,
   ~inMemoryStore,
   ~cb,
-  ~latestProcessedBlocks: ChainMap.t<int>,
+  ~latestProcessedBlocks: EventsProcessed.t,
 ) => {
   let {event, chainId} = item
 
@@ -418,7 +448,7 @@ let registerProcessEventBatchMetrics = (
 let processEventBatch = async (
   ~eventBatch: list<Types.eventBatchQueueItem>,
   ~inMemoryStore: IO.InMemoryStore.t,
-  ~latestProcessedBlocks: ChainMap.t<int>,
+  ~latestProcessedBlocks: EventsProcessed.t,
   ~checkContractIsRegistered,
 ) => {
   let logger = Logging.createChild(

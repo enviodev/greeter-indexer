@@ -4,6 +4,7 @@ type t = {
   currentlyProcessingBatch: bool,
   maxBatchSize: int,
   maxPerChainQueueSize: int,
+  indexerStartTime: Js.Date.t,
 }
 type chain = ChainMap.Chain.t
 type arbitraryEventQueue = list<Types.eventBatchQueueItem>
@@ -12,12 +13,10 @@ type blockRangeFetchResponse = ChainWorkerTypes.blockRangeFetchResponse<
   RpcWorker.t,
 >
 
-type latestProcessedBlocks = ChainMap.t<int>
-
 type action =
   | BlockRangeResponse(chain, blockRangeFetchResponse)
   | SetFetchStateCurrentBlockHeight(chain, int)
-  | EventBatchProcessed(EventProcessing.loadResponse<latestProcessedBlocks>)
+  | EventBatchProcessed(EventProcessing.loadResponse<EventProcessing.EventsProcessed.t>)
   | SetCurrentlyProcessing(bool)
   | SetCurrentlyFetchingBatch(chain, bool)
   | SetFetchState(chain, FetchState.t)
@@ -97,8 +96,21 @@ let handleBlockRangeResponse = (state, ~chain, ~response: blockRangeFetchRespons
     ->Utils.unwrapResultExn
   let chainFetcher = chainFetcher->updateChainFetcherCurrentBlockHeight(~currentBlockHeight)
   let firstEventBlockNumber = switch parsedQueueItems[0] {
-  | Some(item) if chainFetcher.firstEventBlockNumber == 0 => item.blockNumber
+  | Some(item) if chainFetcher.firstEventBlockNumber->Option.isNone => item.blockNumber->Some
   | _ => chainFetcher.firstEventBlockNumber
+  }
+
+  let hasArbQueueEvents =
+    state.chainManager.arbitraryEventPriorityQueue
+    ->ChainManager.getFirstArbitraryEventsItemForChain(~chain)
+    ->Option.isSome //TODO this is more expensive than it needs to be
+
+  let queueSize = updatedFetchState->FetchState.queueSize
+
+  let latestProcessedBlock = if !hasArbQueueEvents && queueSize == 0 {
+    updatedFetchState->FetchState.getLatestFullyFetchedBlock->Some
+  } else {
+    chainFetcher.latestProcessedBlock
   }
 
   let updatedChainFetcher = {
@@ -107,6 +119,7 @@ let handleBlockRangeResponse = (state, ~chain, ~response: blockRangeFetchRespons
     fetchState: updatedFetchState,
     isFetchingBatch: false,
     firstEventBlockNumber,
+    latestProcessedBlock,
   }
 
   let updatedFetchers = state.chainManager.chainFetchers->ChainMap.set(chain, updatedChainFetcher)
@@ -134,14 +147,22 @@ let updateChainFetcher = (chainFetcherUpdate, ~state, ~chain) => {
   )
 }
 
-let updateLatestProcessedBlocks = (~state: t, ~latestProcessedBlocks: latestProcessedBlocks) => {
+let updateLatestProcessedBlocks = (
+  ~state: t,
+  ~latestProcessedBlocks: EventProcessing.EventsProcessed.t,
+) => {
   {
     ...state,
     chainManager: {
       ...state.chainManager,
       chainFetchers: state.chainManager.chainFetchers->ChainMap.map(cf => {
-        ...cf,
-        latestProcessedBlock: latestProcessedBlocks->ChainMap.get(cf.chainConfig.chain),
+        let {latestProcessedBlock, numEventsProcessed} =
+          latestProcessedBlocks->ChainMap.get(cf.chainConfig.chain)
+        {
+          ...cf,
+          latestProcessedBlock,
+          numEventsProcessed,
+        }
       }),
     },
   }
@@ -222,8 +243,9 @@ let actionReducer = (state: t, action: action) => {
     ({...nextState, currentlyProcessingBatch: false}, [ProcessEventBatch])
   | SetCurrentlyProcessing(currentlyProcessingBatch) => ({...state, currentlyProcessingBatch}, [])
   | SetIsFetchingAtHead(chain, isFetchingAtHead) =>
+    let timestampCaughtUpToHead = isFetchingAtHead ? Js.Date.make()->Some : None
     updateChainFetcher(
-      currentChainFetcher => {...currentChainFetcher, isFetchingAtHead},
+      currentChainFetcher => {...currentChainFetcher, isFetchingAtHead, timestampCaughtUpToHead},
       ~chain,
       ~state,
     )
@@ -342,8 +364,9 @@ let taskReducer = (state: t, task: task, ~dispatchAction) => {
             ~contractName,
           )
         }
-        let latestProcessedBlocks =
-          state.chainManager.chainFetchers->ChainMap.map(cf => cf.latestProcessedBlock)
+        let latestProcessedBlocks = EventProcessing.EventsProcessed.makeFromChainManager(
+          state.chainManager,
+        )
         let inMemoryStore = IO.InMemoryStore.make()
         EventProcessing.processEventBatch(
           ~eventBatch=batch,

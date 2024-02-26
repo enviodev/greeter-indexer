@@ -29,7 +29,6 @@ let overrideConsoleLog: Pino.t => unit = %raw(`function (logger) {
   }
 `)
 // overrideConsoleLog(Logging.logger)
-Js.log("calling express")
 open Express
 
 let app = express()
@@ -67,17 +66,63 @@ type process
 
 type mainArgs = Yargs.parsedArgs<args>
 
-let makeAppState = (globalState: GlobalState.t): TerminalIndex.App.appState => {
+let makeAppState = (globalState: GlobalState.t): EnvioInkApp.appState => {
   open Belt
   {
-    chainData: globalState.chainManager.chainFetchers
+    indexerStartTime: globalState.indexerStartTime,
+    chains: globalState.chainManager.chainFetchers
     ->ChainMap.values
-    ->Array.map((cf): TerminalIndex.App.chain => {
-      latestFetchedBlockNumber: cf.fetchState->FetchState.getLatestFullyFetchedBlock,
-      firstEventBlockNumber: cf.firstEventBlockNumber,
-      chainId: cf.chainConfig.chain->ChainMap.Chain.toChainId,
-      currentBlockHeight: cf.currentBlockHeight,
-      latestProcessedBlock: cf.latestProcessedBlock,
+    ->Array.map(cf => {
+      let {currentBlockHeight, numEventsProcessed, fetchState} = cf
+      let latestFetchedBlockNumber = fetchState->FetchState.getLatestFullyFetchedBlock
+
+      let progress: ChainData.progress = switch cf {
+      | {
+          firstEventBlockNumber: Some(firstEventBlockNumber),
+          latestProcessedBlock,
+          timestampCaughtUpToHead: Some(timestampCaughtUpToHead),
+        } =>
+        let latestProcessedBlock =
+          latestProcessedBlock->Option.getWithDefault(firstEventBlockNumber)
+        Synced({
+          firstEventBlockNumber,
+          latestProcessedBlock,
+          currentBlockHeight,
+          latestFetchedBlockNumber,
+          timestampCaughtUpToHead,
+          numEventsProcessed,
+        })
+      | {
+          firstEventBlockNumber: Some(firstEventBlockNumber),
+          latestProcessedBlock,
+          timestampCaughtUpToHead: None,
+        } =>
+        let latestProcessedBlock =
+          latestProcessedBlock->Option.getWithDefault(firstEventBlockNumber)
+        Syncing({
+          firstEventBlockNumber,
+          latestProcessedBlock,
+          currentBlockHeight,
+          latestFetchedBlockNumber,
+          numEventsProcessed,
+        })
+      | {firstEventBlockNumber: None} =>
+        SearchingForEvents({
+          currentBlockHeight,
+          latestFetchedBlockNumber,
+        })
+      }
+
+      (
+        {
+          progress,
+          chainId: cf.chainConfig.chain->ChainMap.Chain.toChainId,
+          isHyperSync: switch cf.chainConfig.syncSource {
+          | HyperSync(_) => true
+          | Rpc(_) => false
+          },
+        }: EnvioInkApp.chainData
+      )
     }),
   }
 }
@@ -95,11 +140,12 @@ let main = async () => {
       chainManager,
       maxBatchSize: Env.maxProcessBatchSize,
       maxPerChainQueueSize: Env.maxPerChainQueueSize,
+      indexerStartTime: Js.Date.make(),
     }
     let stateUpdatedHook = if shouldUseTerminator {
       // let (globalState, setGlobalState) = React.useState(_ => globalState)
 
-      let rerender = TerminalIndex.startApp(makeAppState(globalState))
+      let rerender = EnvioInkApp.startApp(makeAppState(globalState))
 
       Some(globalState => globalState->makeAppState->rerender)
     } else {

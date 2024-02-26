@@ -1,4 +1,11 @@
-type chalkTheme = | @as("white") Primary | @as("blue") Secondary
+type chalkTheme =
+  | @as("#9860E5") Primary
+  | @as("#FFBB2F") Secondary
+  | @as("#6CBFEE") Info
+  | @as("#FF8269") Danger
+  | @as("#3B8C3D") Success
+  | @as("white") White
+  | @as("gray") Gray
 
 @unboxed type numOrStr = Num(int) | Str(string)
 

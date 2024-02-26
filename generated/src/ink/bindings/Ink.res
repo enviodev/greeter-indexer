@@ -15,11 +15,12 @@ type options = {
   patchConsole?: bool,
   debug?: bool,
 }
-@module("ink") external renderInternal: ( React.element, ~options: option<options>) => instance = "render"
+@module("ink")
+external renderInternal: (React.element, ~options: option<options>) => instance = "render"
 
 let render = (~options=?, element) => {
-renderInternal(element,~options)
-} 
+  renderInternal(element, ~options)
+}
 type measurement = {width: int, height: int}
 
 @module("ink")
@@ -214,4 +215,17 @@ module Hooks = {
   }
   @module("ink")
   external useFocusManager: unit => focusManager = "useFocusManager"
+}
+
+module Link = {
+  /**
+  Transform a string representation of React components before they are written to output. For example, you might want to apply a gradient to text, add a clickable link or create some text effects. These use cases can't accept React nodes as input, they are expecting a string. That's what <Transform> component does, it gives you an output string of its child components and lets you transform it in any way.
+
+  Note: <Transform> must be applied only to <Text> children components and shouldn't change the dimensions of the output, otherwise layout will be incorrect.
+  */
+  type outputLine = string
+  type index = int
+  @module("ink-link") @react.component
+  external make: (~children: React.element=?, ~url: string, ~fallback: bool=?) => React.element =
+    "default"
 }

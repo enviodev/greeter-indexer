@@ -8,8 +8,10 @@ type t = {
   currentBlockHeight: int,
   isFetchingBatch: bool,
   isFetchingAtHead: bool,
-  firstEventBlockNumber: int,
-  latestProcessedBlock: int,
+  timestampCaughtUpToHead: option<Js.Date.t>,
+  firstEventBlockNumber: option<int>,
+  latestProcessedBlock: option<int>,
+  numEventsProcessed: int,
   mutable lastBlockScannedHashes: ReorgDetection.LastBlockScannedHashes.t, // Dead code until we look at re-orgs again.
 }
 
@@ -22,6 +24,8 @@ let make = (
   ~firstEventBlockNumber,
   ~latestProcessedBlock,
   ~logger,
+  ~timestampCaughtUpToHead,
+  ~numEventsProcessed,
 ): t => {
   let (endpointDescription, chainWorker) = switch chainConfig.syncSource {
   | HyperSync(serverUrl) => (
@@ -43,6 +47,8 @@ let make = (
     fetchState,
     firstEventBlockNumber,
     latestProcessedBlock,
+    timestampCaughtUpToHead,
+    numEventsProcessed,
   }
 }
 
@@ -61,8 +67,10 @@ let makeFromConfig = (chainConfig: Config.chainConfig, ~lastBlockScannedHashes) 
     ~chainConfig,
     ~startBlock=chainConfig.startBlock,
     ~lastBlockScannedHashes,
-    ~firstEventBlockNumber=0,
-    ~latestProcessedBlock=0,
+    ~firstEventBlockNumber=None,
+    ~latestProcessedBlock=None,
+    ~timestampCaughtUpToHead=None,
+    ~numEventsProcessed=0,
     ~logger,
   )
 }
@@ -108,8 +116,10 @@ let makeFromDbState = async (chainConfig: Config.chainConfig, ~lastBlockScannedH
     ~chainConfig,
     ~startBlock,
     ~lastBlockScannedHashes,
-    ~firstEventBlockNumber=0, //TODO load from the database
-    ~latestProcessedBlock=0, //TODO load from the database
+    ~firstEventBlockNumber=None, //TODO load from the database
+    ~latestProcessedBlock=None, //TODO load from the database
+    ~timestampCaughtUpToHead=None, //TODO load from the database
+    ~numEventsProcessed=0, //TODO load from the database
     ~logger,
   )
 }

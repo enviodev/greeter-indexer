@@ -166,7 +166,7 @@ module EventFunctions = {
         ~eventName,
         ~cb=mockDb => res(. mockDb),
         eventProcessorArgs,
-        ~latestProcessedBlocks=ChainMap.make(_chain => 0),
+        ~latestProcessedBlocks=EventProcessing.EventsProcessed.makeEmpty(),
       )
     })
   }
@@ -191,7 +191,7 @@ module EventFunctions = {
       ~eventName,
       ~cb=mockDb => nextMockDb := Some(mockDb),
       eventProcessorArgs,
-      ~latestProcessedBlocks=ChainMap.make(_chain => 0),
+      ~latestProcessedBlocks=EventProcessing.EventsProcessed.makeEmpty(),
     )
 
     //The callback is called synchronously so nextMockDb should be set.
