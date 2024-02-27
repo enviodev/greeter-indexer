@@ -9,24 +9,36 @@ const makeFormatter = (logLevels) =>
         customColors:
             "fatal:bgRed,error:red,warn:yellow,info:green,udebug:bgBlue,uinfo:bgGreen,uwarn:bgYellow,uerror:bgRed,debug:blue,trace:gray",
     });
-const makeStreams = (level, formatter) => [
-    // pretty({ sync: true }),
-    {
-        stream: {
-            write(v) {
-                console.log(formatter(v));
+const makeStreams = (level, formatter, logFile) => {
+    let streams = [
+        // pretty({ sync: true }),
+        {
+            stream: {
+                write(v) {
+                    console.log(formatter(v));
+                },
             },
+            level
         },
-        level
-    },
-];
+    ];
+    if (logFile) {
+        streams.push({
+            level: "trace",
+            stream: pino.destination({ dest: logFile, sync: false, mkdir: true }),
+        });
+    }
+    return streams
+}
 
-export const makelogger = (level, logLevels) => {
-    const formatter = makeFormatter(logLevels);
+export const makelogger = (level, logLevels, logFile, formatterOpt) => {
+    let formatter = makeFormatter(logLevels);
+    let options = formatterOpt ? formatterOpt : undefined;
     return pino(
         {
+            ...options,
+            customLevels: logLevels,
             level,
         },
-        pino.multistream(makeStreams(level, formatter)),
+        pino.multistream(makeStreams(level, formatter, logFile)),
     );
 };

@@ -28,25 +28,38 @@ type queryChain = CheckAllChains | Chain(chain)
 type task =
   | NextQuery(queryChain)
   | ProcessEventBatch
+  | UpdateChainMetaData
 
 let updateChainFetcherCurrentBlockHeight = (chainFetcher: ChainFetcher.t, ~currentBlockHeight) => {
   if currentBlockHeight > chainFetcher.currentBlockHeight {
-    //Don't await this set, it can happen in its own time
-    DbFunctions.ChainMetadata.setChainMetadataRow(
-      ~chainId=chainFetcher.chainConfig.chain->ChainMap.Chain.toChainId,
-      ~startBlock=chainFetcher.chainConfig.startBlock,
-      ~blockHeight=currentBlockHeight,
-    )->ignore
-
     Prometheus.setSourceChainHeight(
       ~blockNumber=currentBlockHeight,
       ~chain=chainFetcher.chainConfig.chain,
     )
-
     {...chainFetcher, currentBlockHeight}
   } else {
     chainFetcher
   }
+}
+
+let updateChainMetadataTable = async (cm: ChainManager.t) => {
+  let chainMetadataArray: array<DbFunctions.ChainMetadata.chainMetadata> =
+    cm.chainFetchers
+    ->ChainMap.values
+    ->Belt.Array.map(cf => {
+      let chainMetadata: DbFunctions.ChainMetadata.chainMetadata = {
+        chainId: cf.chainConfig.chain->ChainMap.Chain.toChainId,
+        startBlock: cf.chainConfig.startBlock,
+        blockHeight: cf.currentBlockHeight,
+        //optional fields
+        firstEventBlockNumber: cf.firstEventBlockNumber, //this is already optional
+        latestProcessedBlock: cf.latestProcessedBlock, // this is already optional
+        numEventsProcessed: Some(cf.numEventsProcessed),
+      }
+      chainMetadata
+    })
+  //Don't await this set, it can happen in its own time
+  await DbFunctions.ChainMetadata.batchSetChainMetadataRow(~chainMetadataArray)
 }
 
 let handleSetCurrentBlockHeight = (state, ~chain, ~currentBlockHeight) => {
@@ -56,6 +69,50 @@ let handleSetCurrentBlockHeight = (state, ~chain, ~currentBlockHeight) => {
   let nextState = {...state, chainManager: {...state.chainManager, chainFetchers: updatedFetchers}}
   let nextTasks = [NextQuery(Chain(chain))]
   (nextState, nextTasks)
+}
+
+let updateLatestProcessedBlocks = (
+  ~state: t,
+  ~latestProcessedBlocks: EventProcessing.EventsProcessed.t,
+) => {
+  {
+    ...state,
+    chainManager: {
+      ...state.chainManager,
+      chainFetchers: state.chainManager.chainFetchers->ChainMap.map(cf => {
+        let chain = cf.chainConfig.chain
+        let {latestProcessedBlock, numEventsProcessed} = latestProcessedBlocks->ChainMap.get(chain)
+
+        let hasArbQueueEvents =
+          state.chainManager.arbitraryEventPriorityQueue
+          ->ChainManager.getFirstArbitraryEventsItemForChain(~chain)
+          ->Option.isSome //TODO this is more expensive than it needs to be
+        let fetchState = cf.fetchState
+        let queueSize = fetchState->FetchState.queueSize
+
+        let hasNoMoreEventsToProcess = !hasArbQueueEvents && queueSize == 0
+        let latestProcessedBlock = if hasNoMoreEventsToProcess {
+          fetchState->FetchState.getLatestFullyFetchedBlock->Some
+        } else {
+          latestProcessedBlock
+        }
+
+        let timestampCaughtUpToHead =
+          cf.timestampCaughtUpToHead->Option.isNone &&
+          // don't reset this once it's initially set
+          hasNoMoreEventsToProcess &&
+          cf.isFetchingAtHead
+            ? Js.Date.make()->Some
+            : None
+        {
+          ...cf,
+          latestProcessedBlock,
+          numEventsProcessed,
+          timestampCaughtUpToHead,
+        }
+      }),
+    },
+  }
 }
 
 let handleBlockRangeResponse = (state, ~chain, ~response: blockRangeFetchResponse) => {
@@ -107,11 +164,19 @@ let handleBlockRangeResponse = (state, ~chain, ~response: blockRangeFetchRespons
 
   let queueSize = updatedFetchState->FetchState.queueSize
 
-  let latestProcessedBlock = if !hasArbQueueEvents && queueSize == 0 {
+  let hasNoMoreEventsToProcess = !hasArbQueueEvents && queueSize == 0
+  let latestProcessedBlock = if hasNoMoreEventsToProcess {
     updatedFetchState->FetchState.getLatestFullyFetchedBlock->Some
   } else {
     chainFetcher.latestProcessedBlock
   }
+
+  let timestampCaughtUpToHead =
+    chainFetcher.timestampCaughtUpToHead->Option.isNone && // don't reset this once it's initially set
+    hasNoMoreEventsToProcess &&
+    chainFetcher.isFetchingAtHead
+      ? Js.Date.make()->Some
+      : chainFetcher.timestampCaughtUpToHead
 
   let updatedChainFetcher = {
     ...chainFetcher,
@@ -120,6 +185,7 @@ let handleBlockRangeResponse = (state, ~chain, ~response: blockRangeFetchRespons
     isFetchingBatch: false,
     firstEventBlockNumber,
     latestProcessedBlock,
+    timestampCaughtUpToHead,
   }
 
   let updatedFetchers = state.chainManager.chainFetchers->ChainMap.set(chain, updatedChainFetcher)
@@ -131,7 +197,7 @@ let handleBlockRangeResponse = (state, ~chain, ~response: blockRangeFetchRespons
 
   Prometheus.setFetchedEventsUntilHeight(~blockNumber=response.heighestQueriedBlockNumber, ~chain)
 
-  (nextState, [ProcessEventBatch, NextQuery(Chain(chain))])
+  (nextState, [UpdateChainMetaData, ProcessEventBatch, NextQuery(Chain(chain))])
 }
 
 let updateChainFetcher = (chainFetcherUpdate, ~state, ~chain) => {
@@ -145,27 +211,6 @@ let updateChainFetcher = (chainFetcherUpdate, ~state, ~chain) => {
     },
     [],
   )
-}
-
-let updateLatestProcessedBlocks = (
-  ~state: t,
-  ~latestProcessedBlocks: EventProcessing.EventsProcessed.t,
-) => {
-  {
-    ...state,
-    chainManager: {
-      ...state.chainManager,
-      chainFetchers: state.chainManager.chainFetchers->ChainMap.map(cf => {
-        let {latestProcessedBlock, numEventsProcessed} =
-          latestProcessedBlocks->ChainMap.get(cf.chainConfig.chain)
-        {
-          ...cf,
-          latestProcessedBlock,
-          numEventsProcessed,
-        }
-      }),
-    },
-  }
 }
 
 let actionReducer = (state: t, action: action) => {
@@ -183,7 +228,7 @@ let actionReducer = (state: t, action: action) => {
           b->EventUtils.getEventComparatorFromQueueItem
       }, state.chainManager.arbitraryEventPriorityQueue)
 
-    let nextTasks = [ProcessEventBatch, NextQuery(CheckAllChains)]
+    let nextTasks = [UpdateChainMetaData, ProcessEventBatch, NextQuery(CheckAllChains)]
 
     let nextState = registrationsReversed->List.reduce(state, (state, registration) => {
       let {
@@ -240,12 +285,11 @@ let actionReducer = (state: t, action: action) => {
 
   | EventBatchProcessed({val, dynamicContractRegistrations: None}) =>
     let nextState = updateLatestProcessedBlocks(~state, ~latestProcessedBlocks=val)
-    ({...nextState, currentlyProcessingBatch: false}, [ProcessEventBatch])
+    ({...nextState, currentlyProcessingBatch: false}, [UpdateChainMetaData, ProcessEventBatch])
   | SetCurrentlyProcessing(currentlyProcessingBatch) => ({...state, currentlyProcessingBatch}, [])
   | SetIsFetchingAtHead(chain, isFetchingAtHead) =>
-    let timestampCaughtUpToHead = isFetchingAtHead ? Js.Date.make()->Some : None
     updateChainFetcher(
-      currentChainFetcher => {...currentChainFetcher, isFetchingAtHead, timestampCaughtUpToHead},
+      currentChainFetcher => {...currentChainFetcher, isFetchingAtHead},
       ~chain,
       ~state,
     )
@@ -339,6 +383,7 @@ let checkAndFetchForChain = (chain, ~state, ~dispatchAction) => {
 
 let taskReducer = (state: t, task: task, ~dispatchAction) => {
   switch task {
+  | UpdateChainMetaData => updateChainMetadataTable(state.chainManager)->ignore
   | NextQuery(chainCheck) =>
     let fetchForChain = checkAndFetchForChain(~state, ~dispatchAction)
 

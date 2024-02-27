@@ -27,7 +27,37 @@ export const batchSetEventSyncState = (sql, entityDataArray) => {
     `;
 };
 
-export const setChainMetadata = (sql, entityDataArray) => {
+export const readLatestChainMetadataState = (sql, chainId) => sql`
+  SELECT *
+  FROM public.chain_metadata
+  WHERE chain_id = ${chainId}`;
+
+export const batchSetChainMetadata = (sql, entityDataArray) => {
+  return (sql`
+    INSERT INTO public.chain_metadata
+  ${sql(
+    entityDataArray,
+    "chain_id",
+    "start_block", // this is left out of the on conflict below as it only needs to be set once
+    "block_height",
+    "first_event_block_number",
+    "latest_processed_block",
+    "num_events_processed",
+  )}
+  ON CONFLICT(chain_id) DO UPDATE
+  SET
+  "chain_id" = EXCLUDED."chain_id",
+  "first_event_block_number" = EXCLUDED."first_event_block_number",
+  "latest_processed_block" = EXCLUDED."latest_processed_block",
+  "num_events_processed" = EXCLUDED."num_events_processed",
+  "block_height" = EXCLUDED."block_height";`).then(res => {
+
+  }).catch(err => {
+    console.log("errored", err)
+  });
+};
+
+export const setChainMetadataBlockHeight = (sql, entityDataArray) => {
   return (sql`
     INSERT INTO public.chain_metadata
   ${sql(

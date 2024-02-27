@@ -49,9 +49,6 @@ let createPinoMessage = (message): pinoMessageBlob => Obj.magic(message)
 Jank solution to make logs use console log wrather than stream.write so that ink 
 can render the logs statically.
 */
-@module("./multistreamlogger.mjs")
-external makeSyncLogger: (logLevel, Js.Dict.t<int>) => t = "makelogger"
-
 module Transport = {
   type t
   type optionsObject
@@ -110,6 +107,14 @@ let createChildParams: 'a => childParams = Obj.magic
 @send external child: (t, childParams) => t = "child"
 
 module ECS = {
-  @module
-  external make: 'a => options = "@elastic/ecs-pino-format"
+  @module("@elastic/ecs-pino-format")
+  external make: 'a => options = "default"
 }
+
+@module("./multistreamlogger.mjs")
+external makeSyncLogger: (
+  ~userLogLevel: logLevel,
+  ~customLevels: Js.Dict.t<int>,
+  ~logFile: option<string>,
+  ~options: option<options>,
+) => t = "makelogger"

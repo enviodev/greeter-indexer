@@ -92,6 +92,8 @@ let makeFromDbState = async (chainConfig: Config.chainConfig, ~lastBlockScannedH
     ~chainId,
   )
 
+  let chainMetadata = await DbFunctions.ChainMetadata.getLatestChainMetadataState(~chainId)
+
   let startBlock =
     latestProcessedBlock->Option.mapWithDefault(chainConfig.startBlock, latestProcessedBlock =>
       latestProcessedBlock + 1
@@ -110,16 +112,28 @@ let makeFromDbState = async (chainConfig: Config.chainConfig, ~lastBlockScannedH
       ~address=contractAddress,
     )
   )
+  let (
+    firstEventBlockNumber,
+    latestProcessedBlockChainMetadata,
+    numEventsProcessed,
+  ) = switch chainMetadata {
+  | Some({firstEventBlockNumber, latestProcessedBlock, numEventsProcessed}) => (
+      firstEventBlockNumber,
+      latestProcessedBlock,
+      numEventsProcessed,
+    )
+  | None => (None, None, None)
+  }
 
   make(
     ~contractAddressMapping,
     ~chainConfig,
     ~startBlock,
     ~lastBlockScannedHashes,
-    ~firstEventBlockNumber=None, //TODO load from the database
-    ~latestProcessedBlock=None, //TODO load from the database
-    ~timestampCaughtUpToHead=None, //TODO load from the database
-    ~numEventsProcessed=0, //TODO load from the database
+    ~firstEventBlockNumber,
+    ~latestProcessedBlock=latestProcessedBlockChainMetadata,
+    ~timestampCaughtUpToHead=None, // recalculate this on startup
+    ~numEventsProcessed=numEventsProcessed->Option.getWithDefault(0),
     ~logger,
   )
 }

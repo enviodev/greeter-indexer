@@ -25,6 +25,7 @@ NewGreeting event on the Greeter contract and index these values into
 the DB.
 */
 GreeterContract_NewGreeting_handler((event, context) => {
+  context.log.debug("NewGreeting event was handled");
   //The id for the "User" entity
   const userId = event.params.user;
   //The greeting string that was added.
@@ -78,6 +79,7 @@ ClearGreeting event on the Greeter contract and index these values into
 the DB.
 */
 GreeterContract_ClearGreeting_handler((event, context) => {
+  context.log.debug("ClearGreeting event was handled");
   //The id for the "User" entity derived from params of the ClearGreeting event
   const userId = event.params.user;
   //The optional User entity that may exist already at "userId"
