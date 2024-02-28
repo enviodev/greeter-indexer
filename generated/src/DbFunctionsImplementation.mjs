@@ -175,7 +175,7 @@ const chunkBatchQuery = (
   return Promise.all(promises).catch(e => {
     console.error("Sql query failed", e);
     throw e;
-  });
+    });
 };
 
 export const batchSetRawEvents = (sql, entityDataArray) => {
@@ -250,10 +250,10 @@ export const batchDeleteDynamicContractRegistry = (sql, entityIdArray) => sql`
 
 export const readUserEntities = (sql, entityIdArray) => sql`
 SELECT 
-"numberOfGreetings",
-"latestGreeting",
+"greetings",
 "id",
-"greetings"
+"latestGreeting",
+"numberOfGreetings"
 FROM "public"."User"
 WHERE id IN ${sql(entityIdArray)};`;
 
@@ -261,25 +261,25 @@ const batchSetUserCore = (sql, entityDataArray) => {
   return sql`
     INSERT INTO "public"."User"
 ${sql(entityDataArray,
-    "numberOfGreetings",
-    "latestGreeting",
+    "greetings",
     "id",
-    "greetings"
+    "latestGreeting",
+    "numberOfGreetings"
   )}
   ON CONFLICT(id) DO UPDATE
   SET
-  "numberOfGreetings" = EXCLUDED."numberOfGreetings",
-  "latestGreeting" = EXCLUDED."latestGreeting",
+  "greetings" = EXCLUDED."greetings",
   "id" = EXCLUDED."id",
-  "greetings" = EXCLUDED."greetings"
+  "latestGreeting" = EXCLUDED."latestGreeting",
+  "numberOfGreetings" = EXCLUDED."numberOfGreetings"
   `;
 }
 
 export const batchSetUser = (sql, entityDataArray) => {
 
   return chunkBatchQuery(
-    sql,
-    entityDataArray,
+    sql, 
+    entityDataArray, 
     batchSetUserCore
   );
 }

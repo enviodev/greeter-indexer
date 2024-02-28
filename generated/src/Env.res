@@ -8,5 +8,6 @@ let shouldUseHypersyncClientDecoder = EnvUtils.getBoolEnvVar(
   ~fallback=false,
   "USE_HYPERSYNC_CLIENT_DECODER",
 )
+
 let numChains = Config.config->ChainMap.size
 let maxPerChainQueueSize = maxEventFetchedQueueSize / numChains

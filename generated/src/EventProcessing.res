@@ -121,7 +121,7 @@ let handleEvent = (
     //Call the context getter here, ensures no stale values in the context
     //Since loaders and previous handlers have already run
     let handlerContext = contextGetter(context)
-    switch handler(~event, ~context=handlerContext) {
+    switch handler({event, context: handlerContext}) {
     | exception exn => Error(makeErr(exn))
     | () => Ok(latestProcessedBlocks)
     }->cb
@@ -129,7 +129,7 @@ let handleEvent = (
     //Call the context getter here, ensures no stale values in the context
     //Since loaders and previous handlers have already run
     let handlerContext = contextGetter(context)
-    handler(~event, ~context=handlerContext)
+    handler({event, context: handlerContext})
     ->Promise.thenResolve(_ => cb(Ok(latestProcessedBlocks)))
     ->Promise.catch(exn => {
       cb(Error(makeErr(exn)))
@@ -146,8 +146,7 @@ let eventRouter = (
   ~latestProcessedBlocks: EventsProcessed.t,
 ) => {
   let {event, chainId} = item
-
-  let chain = chainId->ChainMap.Chain.fromChainId->Utils.unwrapResultExn //TODO make item have chain insteaad of chainId
+  let chain = chainId->ChainMap.Chain.fromChainId->Utils.unwrapResultExn
 
   switch event {
   | GreeterContract_NewGreetingWithContext(event, context) =>
@@ -220,7 +219,7 @@ let composeGetReadEntity = (
   ~inMemoryStore,
   ~logger,
   ~asyncGetters,
-  ~getLoader,
+  ~getLoader: unit => Handlers.loader<_>,
   ~item: Types.eventBatchQueueItem,
   ~entitiesToLoad,
   ~dynamicContractRegistrations: option<dynamicContractRegistrations>,
@@ -246,7 +245,7 @@ let composeGetReadEntity = (
 
   let loader = getLoader()
 
-  switch loader(~event, ~context) {
+  switch loader({event, context}) {
   | exception exn =>
     let errorHandler =
       exn->ErrorHandling.make(

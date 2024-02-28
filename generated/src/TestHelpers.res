@@ -1,5 +1,6 @@
 open Belt
-RegisterHandlers.registerAllHandlers()->ignore
+@module external registerHandlersTopLevel: unit = "./TestHelpers_registerAllHandlers.js"
+registerHandlersTopLevel
 
 /***** TAKE NOTE ******
 This is a hack to get genType to work!
@@ -66,7 +67,7 @@ module EventFunctions = {
       'handlerContextSync,
       'handlerContextAsync,
     >,
-    ~getLoader,
+    ~getLoader: unit => Handlers.loader<_>,
     ~eventWithContextAccessor: (
       Types.eventLog<'eventArgs>,
       Context.genericContextCreatorFunctions<
@@ -117,7 +118,7 @@ module EventFunctions = {
 
       //Run the loader, to get all the read values/contract registrations
       //into the context
-      loader(~event, ~context=loaderContext)
+      loader({event, context: loaderContext})
 
       //Get all the entities are requested to be loaded from the mockDB
       let entityBatch = context.getEntitiesToLoad()
@@ -132,20 +133,23 @@ module EventFunctions = {
         event: eventWithContextAccessor(event, context),
       }
 
-      eventAndContext->EventProcessing.eventRouter(~inMemoryStore, ~cb=res =>
-        switch res {
-        | Ok(_latestProcessedBlocks) =>
-          //Now that the processing is finished. Simulate writing a batch
-          //(Although in this case a batch of 1 event only) to the cloned mockDb
-          mockDbClone->TestHelpers_MockDb.writeFromMemoryStore(~inMemoryStore)
+      eventAndContext->EventProcessing.eventRouter(
+        ~latestProcessedBlocks=EventProcessing.EventsProcessed.makeEmpty(),
+        ~inMemoryStore,
+        ~cb=res =>
+          switch res {
+          | Ok(_latestProcessedBlocks) =>
+            //Now that the processing is finished. Simulate writing a batch
+            //(Although in this case a batch of 1 event only) to the cloned mockDb
+            mockDbClone->TestHelpers_MockDb.writeFromMemoryStore(~inMemoryStore)
 
-          //Return the cloned mock db
-          cb(mockDbClone)
+            //Return the cloned mock db
+            cb(mockDbClone)
 
-        | Error(errHandler) =>
-          errHandler->ErrorHandling.log
-          errHandler->ErrorHandling.raiseExn
-        }
+          | Error(errHandler) =>
+            errHandler->ErrorHandling.log
+            errHandler->ErrorHandling.raiseExn
+          },
       )
     }
   }
@@ -166,7 +170,6 @@ module EventFunctions = {
         ~eventName,
         ~cb=mockDb => res(. mockDb),
         eventProcessorArgs,
-        ~latestProcessedBlocks=EventProcessing.EventsProcessed.makeEmpty(),
       )
     })
   }
@@ -191,7 +194,6 @@ module EventFunctions = {
       ~eventName,
       ~cb=mockDb => nextMockDb := Some(mockDb),
       eventProcessorArgs,
-      ~latestProcessedBlocks=EventProcessing.EventsProcessed.makeEmpty(),
     )
 
     //The callback is called synchronously so nextMockDb should be set.

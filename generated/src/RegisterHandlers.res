@@ -1,9 +1,5 @@
 @val external import: string => promise<unit> = "import"
 
-// @module external importEventHandlers: unit = "../../src/EventHandlers"
-
-// importEventHandlers
-
 let registerContractHandlers = async (
   ~contractName,
   ~handlerPathRelativeToGeneratedSrc,
@@ -29,7 +25,7 @@ let registerContractHandlers = async (
 let registerAllHandlers = async () => {
   await registerContractHandlers(
     ~contractName="Greeter",
-     ~handlerPathRelativeToGeneratedSrc="../../src/EventHandlers.ts",
+    ~handlerPathRelativeToGeneratedSrc="../../src/EventHandlers.ts",
     ~handlerPathRelativeToConfig="src/EventHandlers.ts",
   )
 }
