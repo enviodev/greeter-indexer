@@ -1,0 +1,25 @@
+{
+  "name": "envio-ink",
+  "version": "0.1.0",
+  "sources": [
+    {
+      "dir": "src",
+      "subdirs": true
+    }
+  ],
+  "package-specs": {
+    "module": "es6",
+    "in-source": true
+  },
+  "suffix": ".res.js",
+  "jsx": {
+    "version": 4
+  },
+  "bs-dependencies": [
+    "@rescript/react",
+    "@rescript/core"
+  ],
+  "bsc-flags": [
+    "-open RescriptCore"
+  ]
+}

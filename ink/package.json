@@ -1,0 +1,23 @@
+{
+  "name": "ink",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "clean": "rescript clean -with-deps",
+    "build": "rescript build -with-deps",
+    "watch": "rescript build -with-deps -w",
+    "start": "node src/Index.res.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@rescript/core": "^1.0.0",
+    "@rescript/react": "0.12.1",
+    "ink": "4.4.1",
+    "react": "18.2.0",
+    "rescript": "11.0.1"
+  }
+}
