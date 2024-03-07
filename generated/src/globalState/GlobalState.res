@@ -356,6 +356,13 @@ let checkAndFetchForChain = (chain, ~state, ~dispatchAction) => {
       }
       logger->Logging.childTrace("Waiting for new blocks")
       let compose = async (worker, waitForBlockGreaterThanCurrentHeight) => {
+        let logger = Logging.createChildFrom(
+          ~logger,
+          ~params={
+            "logType": "Poll for block greater than current height",
+            "currentBlockHeight": currentBlockHeight,
+          },
+        )
         let newHeight =
           await worker->waitForBlockGreaterThanCurrentHeight(~currentBlockHeight, ~logger)
         setCurrentBlockHeight(newHeight)
@@ -367,17 +374,29 @@ let checkAndFetchForChain = (chain, ~state, ~dispatchAction) => {
     | NextQuery(query) =>
       dispatchAction(SetCurrentlyFetchingBatch(chain, true))
 
-      let compose = (worker, fetchBlockRange) => {
-        worker
-        ->fetchBlockRange(~query, ~logger, ~currentBlockHeight, ~setCurrentBlockHeight)
-        ->Promise.thenResolve(res => dispatchAction(BlockRangeResponse(chain, res)))
-        ->ignore
+      let compose = async (worker, fetchBlockRange, workerType) => {
+        let logger = Logging.createChildFrom(
+          ~logger,
+          ~params={"logType": "Block Range Query", "workerType": workerType},
+        )
+        let logger = query->FetchState.getQueryLogger(~logger)
+        let res =
+          await worker->fetchBlockRange(
+            ~query,
+            ~logger,
+            ~currentBlockHeight,
+            ~setCurrentBlockHeight,
+          )
+        switch res {
+        | Ok(res) => dispatchAction(BlockRangeResponse(chain, res))
+        | Error(e) => dispatchAction(ErrorExit(e))
+        }
       }
 
       switch chainWorker {
-      | HyperSync(worker) => compose(worker, HyperSyncWorker.fetchBlockRange)
-      | Rpc(worker) => compose(worker, RpcWorker.fetchBlockRange)
-      }
+      | HyperSync(worker) => compose(worker, HyperSyncWorker.fetchBlockRange, "HyperSync")
+      | Rpc(worker) => compose(worker, RpcWorker.fetchBlockRange, "RPC")
+      }->ignore
     }
   }
 }

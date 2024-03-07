@@ -1,12 +1,12 @@
-@val external import: string => promise<unit> = "import"
+@val external require: string => unit = "require"
 
-let registerContractHandlers = async (
+let registerContractHandlers = (
   ~contractName,
   ~handlerPathRelativeToGeneratedSrc,
   ~handlerPathRelativeToConfig,
 ) => {
   try {
-    await import(handlerPathRelativeToGeneratedSrc)
+    require(handlerPathRelativeToGeneratedSrc)
   } catch {
   | exn =>
     let params = {
@@ -22,8 +22,8 @@ let registerContractHandlers = async (
   }
 }
 
-let registerAllHandlers = async () => {
-  await registerContractHandlers(
+let registerAllHandlers = () => {
+  registerContractHandlers(
     ~contractName="Greeter",
     ~handlerPathRelativeToGeneratedSrc="../../src/EventHandlers.ts",
     ~handlerPathRelativeToConfig="src/EventHandlers.ts",

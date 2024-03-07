@@ -18,14 +18,14 @@ module ChainMetadata = {
     @as("num_events_processed") numEventsProcessed: option<int>,
   }
 
-  @module("./DbFunctionsImplementation.mjs")
+  @module("./DbFunctionsImplementation.js")
   external setChainMetadataBlockHeight: (Postgres.sql, chainMetadata) => promise<unit> =
     "setChainMetadataBlockHeight"
-  @module("./DbFunctionsImplementation.mjs")
+  @module("./DbFunctionsImplementation.js")
   external batchSetChainMetadata: (Postgres.sql, array<chainMetadata>) => promise<unit> =
     "batchSetChainMetadata"
 
-  @module("./DbFunctionsImplementation.mjs")
+  @module("./DbFunctionsImplementation.js")
   external readLatestChainMetadataState: (
     Postgres.sql,
     ~chainId: int,
@@ -54,7 +54,7 @@ module EventSyncState = {
     @as("transaction_index") transactionIndex: int,
     @as("block_timestamp") blockTimestamp: int,
   }
-  @module("./DbFunctionsImplementation.mjs")
+  @module("./DbFunctionsImplementation.js")
   external readLatestSyncedEventOnChainIdArr: (
     Postgres.sql,
     ~chainId: int,
@@ -70,28 +70,28 @@ module EventSyncState = {
     latestEventOpt->Belt.Option.map(event => event.blockNumber)
   }
 
-  @module("./DbFunctionsImplementation.mjs")
+  @module("./DbFunctionsImplementation.js")
   external batchSet: (Postgres.sql, array<eventSyncState>) => promise<unit> =
     "batchSetEventSyncState"
 }
 
 module RawEvents = {
   type rawEventRowId = (chainId, eventId)
-  @module("./DbFunctionsImplementation.mjs")
+  @module("./DbFunctionsImplementation.js")
   external batchSet: (Postgres.sql, array<Types.rawEventsEntity>) => promise<unit> =
     "batchSetRawEvents"
 
-  @module("./DbFunctionsImplementation.mjs")
+  @module("./DbFunctionsImplementation.js")
   external batchDelete: (Postgres.sql, array<rawEventRowId>) => promise<unit> =
     "batchDeleteRawEvents"
 
-  @module("./DbFunctionsImplementation.mjs")
+  @module("./DbFunctionsImplementation.js")
   external readEntities: (
     Postgres.sql,
     array<rawEventRowId>,
   ) => promise<array<Types.rawEventsEntity>> = "readRawEventsEntities"
 
-  @module("./DbFunctionsImplementation.mjs")
+  @module("./DbFunctionsImplementation.js")
   external getRawEventsPageGtOrEqEventId: (
     Postgres.sql,
     ~chainId: chainId,
@@ -100,7 +100,7 @@ module RawEvents = {
     ~contractAddresses: array<Ethers.ethAddress>,
   ) => promise<array<Types.rawEventsEntity>> = "getRawEventsPageGtOrEqEventId"
 
-  @module("./DbFunctionsImplementation.mjs")
+  @module("./DbFunctionsImplementation.js")
   external getRawEventsPageWithinEventIdRangeInclusive: (
     Postgres.sql,
     ~chainId: chainId,
@@ -111,7 +111,7 @@ module RawEvents = {
   ) => promise<array<Types.rawEventsEntity>> = "getRawEventsPageWithinEventIdRangeInclusive"
 
   ///Returns an array with 1 block number (the highest processed on the given chainId)
-  @module("./DbFunctionsImplementation.mjs")
+  @module("./DbFunctionsImplementation.js")
   external readLatestRawEventsBlockNumberProcessedOnChainId: (
     Postgres.sql,
     chainId,
@@ -127,15 +127,15 @@ module RawEvents = {
 module DynamicContractRegistry = {
   type contractAddress = Ethers.ethAddress
   type dynamicContractRegistryRowId = (chainId, contractAddress)
-  @module("./DbFunctionsImplementation.mjs")
+  @module("./DbFunctionsImplementation.js")
   external batchSet: (Postgres.sql, array<Types.dynamicContractRegistryEntity>) => promise<unit> =
     "batchSetDynamicContractRegistry"
 
-  @module("./DbFunctionsImplementation.mjs")
+  @module("./DbFunctionsImplementation.js")
   external batchDelete: (Postgres.sql, array<dynamicContractRegistryRowId>) => promise<unit> =
     "batchDeleteDynamicContractRegistry"
 
-  @module("./DbFunctionsImplementation.mjs")
+  @module("./DbFunctionsImplementation.js")
   external readEntities: (
     Postgres.sql,
     array<dynamicContractRegistryRowId>,
@@ -148,7 +148,7 @@ module DynamicContractRegistry = {
   }
 
   ///Returns an array with 1 block number (the highest processed on the given chainId)
-  @module("./DbFunctionsImplementation.mjs")
+  @module("./DbFunctionsImplementation.js")
   external readDynamicContractsOnChainIdAtOrBeforeBlock: (
     Postgres.sql,
     ~chainId: chainId,
@@ -174,13 +174,13 @@ module User = {
     entityDecoded
   }
 
-  @module("./DbFunctionsImplementation.mjs")
+  @module("./DbFunctionsImplementation.js")
   external batchSet: (Postgres.sql, array<Js.Json.t>) => promise<unit> = "batchSetUser"
 
-  @module("./DbFunctionsImplementation.mjs")
+  @module("./DbFunctionsImplementation.js")
   external batchDelete: (Postgres.sql, array<Types.id>) => promise<unit> = "batchDeleteUser"
 
-  @module("./DbFunctionsImplementation.mjs")
+  @module("./DbFunctionsImplementation.js")
   external readEntitiesFromDb: (Postgres.sql, array<Types.id>) => promise<array<Js.Json.t>> =
     "readUserEntities"
 

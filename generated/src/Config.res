@@ -63,8 +63,24 @@ let getLogLevelConfig = (~name, ~default): Pino.logLevel =>
     (),
   )
 
-let configIsUnorderedMultichainMode = false
+let configShouldUseHypersyncClientDecoder = false
 
+/**
+Determines whether to use HypersyncClient Decoder or Viem for parsing events
+Default is hypersync client decoder, configurable in config with:
+```yaml
+event_decoder: "viem" || "hypersync-client"
+```
+*/
+let shouldUseHypersyncClientDecoder =
+  envSafe->EnvSafe.get(
+    ~name="USE_HYPERSYNC_CLIENT_DECODER",
+    ~struct=S.bool(),
+    ~devFallback=configShouldUseHypersyncClientDecoder,
+    (),
+  )
+
+let configIsUnorderedMultichainMode = false
 /**
 Used for backwards compatability
 */
