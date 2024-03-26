@@ -218,7 +218,6 @@ type nextQuery = {
   fromBlock: int,
   toBlock: int,
   contractAddressMapping: ContractAddressingMap.mapping,
-  currentLatestBlockTimestamp: int,
 }
 
 let getQueryLogger = (
@@ -260,7 +259,7 @@ let getQueryLogger = (
 Constructs `nextQuery` from a given node
 */
 let getNextQueryFromNode = (
-  {registerType, latestFetchedBlockNumber, contractAddressMapping, latestFetchedBlockTimestamp}: t,
+  {registerType, latestFetchedBlockNumber, contractAddressMapping}: t,
   ~toBlock,
 ) => {
   let id = switch registerType {
@@ -276,7 +275,6 @@ let getNextQueryFromNode = (
     fromBlock,
     toBlock,
     contractAddressMapping,
-    currentLatestBlockTimestamp: latestFetchedBlockTimestamp,
   }
 }
 

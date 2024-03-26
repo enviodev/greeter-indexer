@@ -55,6 +55,7 @@ module Helpers = {
   }
 
   exception JsExn(jsExnObj)
+  exception ErrorMessage(string)
 }
 
 let make = (chainConfig: Config.chainConfig, ~serverUrl): t => {
@@ -153,13 +154,7 @@ let fetchBlockRange = async (
   let logAndRaise = ErrorHandling.logAndRaise(~logger)
   try {
     let {chainConfig: {chain}, serverUrl} = self
-    let {
-      fetchStateRegisterId,
-      fromBlock,
-      contractAddressMapping,
-      currentLatestBlockTimestamp,
-      toBlock,
-    } = query
+    let {fetchStateRegisterId, fromBlock, contractAddressMapping, toBlock} = query
     let startFetchingBatchTimeRef = Hrtime.makeTimer()
     //fetch batch
     let {page: pageUnsafe, contractInterfaceManager, pageFetchTime} =
@@ -175,18 +170,6 @@ let fetchBlockRange = async (
     //set height and next from block
     let currentBlockHeight = pageUnsafe.archiveHeight
 
-    //TOD: This is a stub, it will need to be returned in a single query from hypersync
-    let parentHash = pageUnsafe->ReorgDetection.getParentHashStub
-
-    //TODO: This is a stub, it will need to be returned in a single query from hypersync
-    let lastBlockScannedData = pageUnsafe->ReorgDetection.getLastBlockScannedDataStub
-
-    let _ = pageUnsafe.rollbackGuard
-    let reorgGuard = {
-      lastBlockScannedData,
-      parentHash,
-    }
-
     logger->Logging.childTrace({
       "message": "Retrieved event page from server",
       "fromBlock": fromBlock,
@@ -198,62 +181,55 @@ let fetchBlockRange = async (
     //In the query
     let heighestBlockQueried = pageUnsafe.nextBlock - 1
 
-    //Helper function to fetch the timestamp of the heighest block queried
-    //In the case that it is unknown
-    let getHeighestBlockAndTimestampWithDefault = () => {
-      HyperSync.queryBlockTimestampsPage(
-        ~serverUrl,
-        ~fromBlock=heighestBlockQueried,
-        ~toBlock=heighestBlockQueried,
-      )->Promise.thenResolve(res =>
-        switch res {
-        | Ok(page) =>
-          //Expected only 1 item but just taking last in case things change and we return
-          //a range
-          let lastBlockInRangeQueried = page.items->Belt.Array.get(page.items->Array.length - 1)
-
-          switch lastBlockInRangeQueried {
-          | Some(v) => v
-          | None => Js.Exn.raiseError("TODO! should be a value")
-          }
-        | Error(e) => HyperSync.queryErrorToMsq(e)->Js.Exn.raiseError
-        }
-      )
-    }
-
-    //The optional block and timestamp of the last item returned by the query
-    //(Optional in the case that there are no logs returned in the query)
-    let logItemsHeighestBlockOpt =
-      pageUnsafe.items
-      ->Belt.Array.get(pageUnsafe.items->Belt.Array.length - 1)
-      ->Belt.Option.map((item): ReorgDetection.lastBlockScannedData => {
-        blockNumber: item.log.blockNumber,
-        blockTimestamp: item.blockTimestamp,
-        blockHash: item.log.blockHash,
-      })
-
-    let heighestBlockQueriedPromise: promise<
-      ReorgDetection.lastBlockScannedData,
-    > = switch logItemsHeighestBlockOpt {
-    | Some(val) =>
-      let {blockNumber, blockTimestamp, blockHash} = val
-      if blockNumber == heighestBlockQueried {
+    let lastBlockQueriedPromise: promise<
+      ReorgDetection.blockData,
+    > = switch pageUnsafe.rollbackGuard {
+    //In the case a rollbackGuard is returned (this only happens at the head for unconfirmed blocks)
+    //use these values
+    | Some({blockint, timestamp, hash}) =>
+      {
+        ReorgDetection.blockNumber: blockint,
+        blockTimestamp: timestamp,
+        blockHash: hash,
+      }->Promise.resolve
+    | None =>
+      //The optional block and timestamp of the last item returned by the query
+      //(Optional in the case that there are no logs returned in the query)
+      switch pageUnsafe.items->Belt.Array.get(pageUnsafe.items->Belt.Array.length - 1) {
+      | Some({log: {blockNumber, blockHash}, blockTimestamp})
         //If the last log item in the current page is equal to the
         //heighest block acounted for in the query. Simply return this
         //value without making an extra query
-        Promise.resolve(val)
-      } else {
-        //If it does not match it means that there were no matching logs in the last
-        //block so we should fetch the block timestamp with a default of our heighest
-        //timestamp (the value in our heighest log)
-        getHeighestBlockAndTimestampWithDefault()
+        if blockNumber == heighestBlockQueried =>
+        {
+          ReorgDetection.blockNumber,
+          blockTimestamp,
+          blockHash,
+        }->Promise.resolve
+      //If it does not match it means that there were no matching logs in the last
+      //block so we should fetch the block data
+      | Some(_)
+      | None =>
+        //If there were no logs at all in the current page query then fetch the
+        //timestamp of the heighest block accounted for
+        HyperSync.queryBlockData(
+          ~serverUrl,
+          ~blockNumber=heighestBlockQueried,
+        )->Promise.thenResolve(res =>
+          switch res {
+          | Ok(Some(blockData)) => blockData
+          | Ok(None) =>
+            logAndRaise(
+              Not_found,
+              ~msg=`Failure, blockData for block ${heighestBlockQueried->Int.toString} unexpectedly returned None`,
+            )
+          | Error(e) =>
+            Helpers.ErrorMessage(HyperSync.queryErrorToMsq(e))->logAndRaise(
+              ~msg=`Failed to query blockData for block ${heighestBlockQueried->Int.toString}`,
+            )
+          }
+        )
       }
-
-    | None =>
-      //If there were no logs at all in the current page query then fetch the
-      //timestamp of the heighest block accounted for,
-      //defaulting to our current latest blocktimestamp
-      getHeighestBlockAndTimestampWithDefault()
     }
 
     let parsingTimeRef = Hrtime.makeTimer()
@@ -351,11 +327,12 @@ let fetchBlockRange = async (
 
     let parsingTimeElapsed = parsingTimeRef->Hrtime.timeSince->Hrtime.toMillis->Hrtime.intFromMillis
 
-    let {
-      blockNumber: heighestQueriedBlockNumber,
-      blockTimestamp: heighestQueriedBlockTimestamp,
-      blockHash,
-    } = await heighestBlockQueriedPromise
+    let lastBlockScannedData = await lastBlockQueriedPromise
+
+    let reorgGuard = {
+      lastBlockScannedData,
+      parentHash: pageUnsafe.rollbackGuard->Option.map(v => v.firstParentHash),
+    }
 
     let totalTimeElapsed =
       startFetchingBatchTimeRef->Hrtime.timeSince->Hrtime.toMillis->Hrtime.intFromMillis
@@ -369,9 +346,9 @@ let fetchBlockRange = async (
     }
 
     {
-      latestFetchedBlockTimestamp: heighestQueriedBlockTimestamp,
+      latestFetchedBlockTimestamp: lastBlockScannedData.blockTimestamp,
       parsedQueueItems,
-      heighestQueriedBlockNumber,
+      heighestQueriedBlockNumber: lastBlockScannedData.blockNumber,
       stats,
       currentBlockHeight,
       reorgGuard,
@@ -384,4 +361,4 @@ let fetchBlockRange = async (
   }
 }
 
-let getBlockHashes = ({serverUrl}: t) => HyperSync.queryBlockHashes(~serverUrl)
+let getBlockHashes = ({serverUrl}: t) => HyperSync.queryBlockDataMulti(~serverUrl)

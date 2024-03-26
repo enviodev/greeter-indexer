@@ -12,7 +12,6 @@ type logsQueryPageItem = {
   txOrigin: option<Ethers.ethAddress>,
 }
 
-type blockTimestampPage = hyperSyncPage<ReorgDetection.lastBlockScannedData>
 type logsQueryPage = hyperSyncPage<logsQueryPageItem>
 
 type missingParams = {
@@ -209,85 +208,6 @@ module LogsQuery = {
   }
 }
 
-module BlockTimestampQuery = {
-  let makeRequestBody = (
-    ~fromBlock,
-    ~toBlockInclusive,
-  ): HyperSyncJsonApi.QueryTypes.postQueryBody => {
-    fromBlock,
-    toBlockExclusive: toBlockInclusive + 1,
-    fieldSelection: {
-      block: [Timestamp, Number, Hash],
-    },
-    includeAllBlocks: true,
-  }
-
-  let convertResponse = (
-    res: result<HyperSyncJsonApi.ResponseTypes.queryResponse, QueryHelpers.queryError>,
-  ): queryResponse<blockTimestampPage> => {
-    switch res {
-    | Error(e) => Error(QueryError(e))
-    | Ok(successRes) =>
-      let {nextBlock, archiveHeight, data} = successRes
-
-      data
-      ->Belt.Array.flatMap(item => {
-        item.blocks->Belt.Option.mapWithDefault([], blocks => {
-          blocks->Belt.Array.map(
-            block => {
-              switch block {
-              | {number: blockNumber, timestamp, hash: blockHash} =>
-                let blockTimestamp = timestamp->Ethers.BigInt.toInt->Belt.Option.getExn
-                Ok(
-                  (
-                    {
-                      blockTimestamp,
-                      blockNumber,
-                      blockHash,
-                    }: ReorgDetection.lastBlockScannedData
-                  ),
-                )
-              | _ =>
-                let missingParams =
-                  [
-                    block.number->Utils.optionMapNone("block.number"),
-                    block.timestamp->Utils.optionMapNone("block.timestamp"),
-                    block.hash->Utils.optionMapNone("block.hash"),
-                  ]->Belt.Array.keepMap(p => p)
-
-                Error(
-                  UnexpectedMissingParams({
-                    queryName: "queryBlockTimestampsPage HyperSync",
-                    missingParams,
-                  }),
-                )
-              }
-            },
-          )
-        })
-      })
-      ->Utils.mapArrayOfResults
-      ->Belt.Result.map((items): blockTimestampPage => {
-        nextBlock,
-        archiveHeight,
-        items,
-        events: [], //tempory return empty events since this query contains no events
-        rollbackGuard: None, //No rollback guard from the json api
-      })
-    }
-  }
-
-  let queryBlockTimestampsPage = async (~serverUrl, ~fromBlock, ~toBlock): queryResponse<
-    blockTimestampPage,
-  > => {
-    let body = makeRequestBody(~fromBlock, ~toBlockInclusive=toBlock)
-
-    let res = await HyperSyncJsonApi.executeHyperSyncQuery(~postQueryBody=body, ~serverUrl)
-
-    res->convertResponse
-  }
-}
-
 module HeightQuery = {
   let getHeightWithRetry = async (~serverUrl, ~logger) => {
     //Amount the retry interval is multiplied between each retry
@@ -330,7 +250,7 @@ module HeightQuery = {
   }
 }
 
-module BlockHashes = {
+module BlockData = {
   let makeRequestBody = (~blockNumber): HyperSyncJsonApi.QueryTypes.postQueryBody => {
     fromBlock: blockNumber,
     toBlockExclusive: blockNumber + 1,
@@ -342,7 +262,7 @@ module BlockHashes = {
 
   let convertResponse = (
     res: result<HyperSyncJsonApi.ResponseTypes.queryResponse, QueryHelpers.queryError>,
-  ): queryResponse<array<ReorgDetection.lastBlockScannedData>> => {
+  ): queryResponse<array<ReorgDetection.blockData>> => {
     switch res {
     | Error(e) => Error(QueryError(e))
     | Ok(successRes) =>
@@ -360,19 +280,20 @@ module BlockHashes = {
                       blockTimestamp,
                       blockNumber,
                       blockHash,
-                    }: ReorgDetection.lastBlockScannedData
+                    }: ReorgDetection.blockData
                   ),
                 )
               | _ =>
                 let missingParams =
                   [
                     block.number->Utils.optionMapNone("block.number"),
+                    block.timestamp->Utils.optionMapNone("block.timestamp"),
                     block.hash->Utils.optionMapNone("block.hash"),
                   ]->Belt.Array.keepMap(p => p)
 
                 Error(
                   UnexpectedMissingParams({
-                    queryName: "query block hash HyperSync",
+                    queryName: "query block data HyperSync",
                     missingParams,
                   }),
                 )
@@ -385,8 +306,8 @@ module BlockHashes = {
     }
   }
 
-  let queryBlockHash = async (~serverUrl, ~blockNumber): queryResponse<
-    array<ReorgDetection.lastBlockScannedData>,
+  let queryBlockData = async (~serverUrl, ~blockNumber): queryResponse<
+    option<ReorgDetection.blockData>,
   > => {
     let body = makeRequestBody(~blockNumber)
 
@@ -398,22 +319,22 @@ module BlockHashes = {
 
     let res = await executeQuery->Time.retryAsyncWithExponentialBackOff(~logger=Some(logger))
 
-    res->convertResponse
+    res->convertResponse->Belt.Result.map(res => res->Belt.Array.get(0))
   }
 
-  let queryBlockHashes = async (~serverUrl, ~blockNumbers) => {
+  let queryBlockDataMulti = async (~serverUrl, ~blockNumbers) => {
     let res =
       await blockNumbers
-      ->Belt.Array.map(blockNumber => queryBlockHash(~blockNumber, ~serverUrl))
+      ->Belt.Array.map(blockNumber => queryBlockData(~blockNumber, ~serverUrl))
       ->Promise.all
     res
     ->Utils.mapArrayOfResults
-    ->Belt.Result.map(blockHashesNested => blockHashesNested->Belt.Array.concatMany)
+    ->Belt.Result.map(Belt.Array.keepMap(_, v => v))
   }
 }
 
 let queryLogsPage = LogsQuery.queryLogsPage
-let queryBlockTimestampsPage = BlockTimestampQuery.queryBlockTimestampsPage
 let getHeightWithRetry = HeightQuery.getHeightWithRetry
 let pollForHeightGtOrEq = HeightQuery.pollForHeightGtOrEq
-let queryBlockHashes = BlockHashes.queryBlockHashes
+let queryBlockData = BlockData.queryBlockData
+let queryBlockDataMulti = BlockData.queryBlockDataMulti

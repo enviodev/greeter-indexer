@@ -1,4 +1,4 @@
-type lastBlockScannedData = {
+type blockData = {
   //Block hash is used for actual comparison to test for reorg
   blockHash: string,
   blockNumber: int,
@@ -19,7 +19,7 @@ let getLastBlockScannedDataStub = page => {
 }
 
 let getParentHashStub = page => {
-// : HyperSync.hyperSyncPage<'item>
+  // : HyperSync.hyperSyncPage<'item>
   let _ = page
   let blockHash = "0x1234"
   Some(blockHash)
@@ -28,16 +28,16 @@ let getParentHashStub = page => {
 module LastBlockScannedHashes: {
   type t
   /**Instantiat t with existing data*/
-  let makeWithData: (array<lastBlockScannedData>, ~confirmedBlockThreshold: int) => t
+  let makeWithData: (array<blockData>, ~confirmedBlockThreshold: int) => t
 
   /**Instantiat empty t with no block data*/
   let empty: (~confirmedBlockThreshold: int) => t
 
   /**Add the latest scanned block data to t*/
-  let addLatestLastBlockData: (t, ~lastBlockScannedData: lastBlockScannedData) => t
+  let addLatestLastBlockData: (t, ~lastBlockScannedData: blockData) => t
 
   /**Read the latest last block scanned data at the from the front of the queue*/
-  let getLatestLastBlockData: t => option<lastBlockScannedData>
+  let getLatestLastBlockData: t => option<blockData>
   /** Given the head block number, find the earliest timestamp from the data where the data
       is still within the given block threshold from the head
   */
@@ -60,10 +60,7 @@ module LastBlockScannedHashes: {
   Return a BlockNumbersAndHashes.t rolled back to where hashes
   match the provided blockNumberAndHashes
   */
-  let rollBackToValidHash: (
-    t,
-    ~blockNumbersAndHashes: array<lastBlockScannedData>,
-  ) => result<t, exn>
+  let rollBackToValidHash: (t, ~blockNumbersAndHashes: array<blockData>) => result<t, exn>
 
   /**
   A record that holds the current height of a chain and the lastBlockScannedHashes,
@@ -95,17 +92,17 @@ module LastBlockScannedHashes: {
     // A cached list of recent blockdata to make comparison checks
     // for reorgs. Should be quite short data set
     // so using built in array for data structure.
-    lastBlockDataList: list<lastBlockScannedData>,
+    lastBlockScannedDataList: list<blockData>,
   }
 
   //Instantiates LastBlockHashes.t
-  let makeWithDataInternal = (lastBlockDataList, ~confirmedBlockThreshold) => {
+  let makeWithDataInternal = (lastBlockScannedDataList, ~confirmedBlockThreshold) => {
     confirmedBlockThreshold,
-    lastBlockDataList,
+    lastBlockScannedDataList,
   }
 
-  let makeWithData = lastBlockDataListArr =>
-    lastBlockDataListArr->Belt.List.fromArray->Belt.List.reverse->makeWithDataInternal
+  let makeWithData = lastBlockScannedDataListArr =>
+    lastBlockScannedDataListArr->Belt.List.fromArray->Belt.List.reverse->makeWithDataInternal
   //Instantiates empty LastBlockHashes
   let empty = (~confirmedBlockThreshold) => makeWithDataInternal(list{}, ~confirmedBlockThreshold)
 
@@ -117,15 +114,15 @@ module LastBlockScannedHashes: {
     ~currentHeight,
     ~confirmedBlockThreshold,
     //reversed so that head to tail is earlist to latest
-    reversedLastBlockDataList: list<lastBlockScannedData>,
+    reversedLastBlockDataList: list<blockData>,
   ): option<int> => {
     switch reversedLastBlockDataList {
-    | list{lastBlockData, ...tail} =>
+    | list{lastBlockScannedData, ...tail} =>
       // If the blocknumber is not in the threshold recurse with given blockdata's
       // timestamp , incrementing the from index
-      if lastBlockData.blockNumber >= currentHeight - confirmedBlockThreshold {
+      if lastBlockScannedData.blockNumber >= currentHeight - confirmedBlockThreshold {
         // If it's in the threshold return the last earliest timestamp
-        Some(lastBlockData.blockTimestamp)
+        Some(lastBlockScannedData.blockTimestamp)
       } else {
         tail->getEarlistTimestampInThresholdInternal(~currentHeight, ~confirmedBlockThreshold)
       }
@@ -135,63 +132,63 @@ module LastBlockScannedHashes: {
 
   let getEarlistTimestampInThreshold = (
     ~currentHeight,
-    {lastBlockDataList, confirmedBlockThreshold}: t,
+    {lastBlockScannedDataList, confirmedBlockThreshold}: t,
   ) =>
-    lastBlockDataList
+    lastBlockScannedDataList
     ->Belt.List.reverse
     ->getEarlistTimestampInThresholdInternal(~currentHeight, ~confirmedBlockThreshold)
 
   // Adds the latest blockData to the end of the array
   let addLatestLastBlockData = (
-    {confirmedBlockThreshold, lastBlockDataList}: t,
+    {confirmedBlockThreshold, lastBlockScannedDataList}: t,
     ~lastBlockScannedData,
   ) =>
-    lastBlockDataList
+    lastBlockScannedDataList
     ->Belt.List.add(lastBlockScannedData)
     ->makeWithDataInternal(~confirmedBlockThreshold)
 
-  let getLatestLastBlockData = (self: t) => self.lastBlockDataList->Belt.List.head
+  let getLatestLastBlockData = (self: t) => self.lastBlockScannedDataList->Belt.List.head
 
   let blockDataIsPastThreshold = (
-    blockData: lastBlockScannedData,
+    lastBlockScannedData: blockData,
     ~currentHeight: int,
     ~confirmedBlockThreshold: int,
-  ) => blockData.blockNumber < currentHeight - confirmedBlockThreshold
+  ) => lastBlockScannedData.blockNumber < currentHeight - confirmedBlockThreshold
 
   //Prunes the back of the unneeded data on the queue
   let rec pruneStaleBlockDataInternal = (
     ~currentHeight,
     ~earliestMultiChainTimestampInThreshold,
     ~confirmedBlockThreshold,
-    lastBlockDataListReversed: list<lastBlockScannedData>,
+    lastBlockScannedDataListReversed: list<blockData>,
   ) => {
     switch earliestMultiChainTimestampInThreshold {
     // If there is no "earlist multichain timestamp in threshold"
     // simply prune the earliest block in the case that the block is
     // outside of the confirmedBlockThreshold
     | None =>
-      lastBlockDataListReversed->pruneEarliestBlockData(
+      lastBlockScannedDataListReversed->pruneEarliestBlockData(
         ~currentHeight,
         ~earliestMultiChainTimestampInThreshold,
         ~confirmedBlockThreshold,
       )
     | Some(timestampThresholdNeeded) =>
-      switch lastBlockDataListReversed {
+      switch lastBlockScannedDataListReversed {
       | list{_head, second, ..._tail} =>
-        // Ony prune in the case where the second lastBlockData from the back
+        // Ony prune in the case where the second lastBlockScannedData from the back
         // Has an earlier timestamp than the timestampThresholdNeeded (this is
-        // the earliest timestamp across all chains where the lastBlockData is
+        // the earliest timestamp across all chains where the lastBlockScannedData is
         // still within the confirmedBlockThreshold)
         if second.blockTimestamp < timestampThresholdNeeded {
-          lastBlockDataListReversed->pruneEarliestBlockData(
+          lastBlockScannedDataListReversed->pruneEarliestBlockData(
             ~currentHeight,
             ~earliestMultiChainTimestampInThreshold,
             ~confirmedBlockThreshold,
           )
         } else {
-          lastBlockDataListReversed
+          lastBlockScannedDataListReversed
         }
-      | list{_} | list{} => lastBlockDataListReversed
+      | list{_} | list{} => lastBlockScannedDataListReversed
       }
     }
   }
@@ -199,9 +196,9 @@ module LastBlockScannedHashes: {
     ~currentHeight,
     ~earliestMultiChainTimestampInThreshold,
     ~confirmedBlockThreshold,
-    lastBlockDataListReversed: list<lastBlockScannedData>,
+    lastBlockScannedDataListReversed: list<blockData>,
   ) => {
-    switch lastBlockDataListReversed {
+    switch lastBlockScannedDataListReversed {
     | list{earliestLastBlockData, ...tail} =>
       // In the case that back is past the threshold, remove it and
       // recurse
@@ -213,7 +210,7 @@ module LastBlockScannedHashes: {
           ~confirmedBlockThreshold,
         )
       } else {
-        lastBlockDataListReversed
+        lastBlockScannedDataListReversed
       }
     | list{} => list{}
     }
@@ -223,9 +220,9 @@ module LastBlockScannedHashes: {
   let pruneStaleBlockData = (
     ~currentHeight,
     ~earliestMultiChainTimestampInThreshold=?,
-    {confirmedBlockThreshold, lastBlockDataList}: t,
+    {confirmedBlockThreshold, lastBlockScannedDataList}: t,
   ) => {
-    lastBlockDataList
+    lastBlockScannedDataList
     ->Belt.List.reverse
     ->pruneStaleBlockDataInternal(
       ~confirmedBlockThreshold,
@@ -250,7 +247,7 @@ module LastBlockScannedHashes: {
   }
 
   let rec rollBackToValidHashInternal = (
-    latestBlockScannedData: list<lastBlockScannedData>,
+    latestBlockScannedData: list<blockData>,
     ~latestBlockHashes: blockNumberToHashMap,
   ) => {
     switch latestBlockScannedData {
@@ -272,14 +269,14 @@ module LastBlockScannedHashes: {
   Return a BlockNumbersAndHashes.t rolled back to where hashes
   match the provided blockNumberAndHashes
   */
-  let rollBackToValidHash = (self: t, ~blockNumbersAndHashes: array<lastBlockScannedData>) => {
-    let {confirmedBlockThreshold, lastBlockDataList} = self
+  let rollBackToValidHash = (self: t, ~blockNumbersAndHashes: array<blockData>) => {
+    let {confirmedBlockThreshold, lastBlockScannedDataList} = self
     let latestBlockHashes =
       blockNumbersAndHashes
       ->Belt.Array.map(({blockNumber, blockHash}) => (blockNumber, blockHash))
       ->Belt.Map.Int.fromArray
 
-    lastBlockDataList
+    lastBlockScannedDataList
     ->rollBackToValidHashInternal(~latestBlockHashes)
     ->Belt.Result.map(makeWithDataInternal(~confirmedBlockThreshold))
   }
@@ -323,7 +320,7 @@ module LastBlockScannedHashes: {
   }
 
   let getAllBlockNumbers = (self: t) =>
-    self.lastBlockDataList->Belt.List.reduceReverse([], (acc, v) => {
+    self.lastBlockScannedDataList->Belt.List.reduceReverse([], (acc, v) => {
       Belt.Array.concat(acc, [v.blockNumber])
     })
 }
