@@ -1,16 +1,31 @@
-let registerGreeterHandlers = () => {
+@val external require: string => unit = "require"
+
+let registerContractHandlers = (
+  ~contractName,
+  ~handlerPathRelativeToGeneratedSrc,
+  ~handlerPathRelativeToConfig,
+) => {
   try {
-    let _ = %raw(`require("../../src/EventHandlers.ts")`)
+    require(handlerPathRelativeToGeneratedSrc)
   } catch {
-  | err => {
-      Logging.error(
-        "EE500: There was an issue importing the handler file for Greeter. Expected file to parse at src/EventHandlers.ts",
-      )
-      Js.log(err)
+  | exn =>
+    let params = {
+      "Contract Name": contractName,
+      "Expected Handler Path": handlerPathRelativeToConfig,
+      "Code": "EE500",
     }
+    let logger = Logging.createChild(~params)
+
+    let errHandler = exn->ErrorHandling.make(~msg="Failed to import handler file", ~logger)
+    errHandler->ErrorHandling.log
+    errHandler->ErrorHandling.raiseExn
   }
 }
 
 let registerAllHandlers = () => {
-  registerGreeterHandlers()
+  registerContractHandlers(
+    ~contractName="Greeter",
+    ~handlerPathRelativeToGeneratedSrc="../../src/EventHandlers.ts",
+    ~handlerPathRelativeToConfig="src/EventHandlers.ts",
+  )
 }

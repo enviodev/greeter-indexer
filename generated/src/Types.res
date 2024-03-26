@@ -1,7 +1,6 @@
 //*************
 //***ENTITIES**
 //*************
-
 @spice @genType.as("Id")
 type id = string
 
@@ -38,8 +37,8 @@ type dynamicContractRegistryEntity = {
 
 @spice @genType.as("UserEntity")
 type userEntity = {
-  id: id,
   greetings: array<string>,
+  id: id,
   latestGreeting: string,
   numberOfGreetings: int,
 }
@@ -57,18 +56,36 @@ let getEntityParamsDecoder = entityName =>
 
 type eventIdentifier = {
   chainId: int,
-  timestamp: int,
+  blockTimestamp: int,
   blockNumber: int,
   logIndex: int,
 }
 
-type entityData<'entityType> =
-  Set('entityType, eventIdentifier) | Delete(string, eventIdentifier) | Read('entityType) //make delete take a EntityStore.key type
+type entityUpdate<'entityType> =
+  | Set('entityType, eventIdentifier)
+  | Delete(string, eventIdentifier)
 
-type inMemoryStoreRow<'entityType> = {
-  current: entityData<'entityType>,
-  history: array<entityData<'entityType>>,
+type entityValueAtStartOfBatch<'entityType> =
+  | NotSet // The entity isn't in the DB yet
+  | AlreadySet('entityType)
+
+type existingValueInDb<'entityType> =
+  | Retrieved(entityValueAtStartOfBatch<'entityType>)
+  // NOTE: We use an postgres function solve the issue of this entities previous value not being known.
+  | Unknown
+
+type updatedValue<'entityType> = {
+  // Initial value within a batch
+  initial: existingValueInDb<'entityType>,
+  latest: entityUpdate<'entityType>,
+  history: array<entityUpdate<'entityType>>,
 }
+@genType
+type inMemoryStoreRowEntity<'entityType> =
+  | Updated(updatedValue<'entityType>)
+  | InitialReadFromDb(entityValueAtStartOfBatch<'entityType>) // This means there is no change from the db.
+
+type inMemoryStoreRowMeta<'a> = 'a
 
 //*************
 //**CONTRACTS**

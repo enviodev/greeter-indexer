@@ -5,7 +5,7 @@ type t = {
   //And potentially extra events that are pushed on by newly registered dynamic
   //contracts which missed being fetched by they chainFetcher
   arbitraryEventPriorityQueue: list<Types.eventBatchQueueItem>,
-  isUnorderedHeadMode: bool,
+  isUnorderedMultichainMode: bool,
 }
 
 let getComparitorFromItem = (queueItem: Types.eventBatchQueueItem) => {
@@ -57,11 +57,11 @@ let chainFetcherPeekComparitorEarliestEventPrioritizeEvents = (
 
 exception NoItemsInArray
 
-let createDetermineNextEventFunction = (
-  ~isUnorderedHeadMode: bool,
+let determineNextEvent = (
+  ~isUnorderedMultichainMode: bool,
   fetchStatesMap: ChainMap.t<FetchState.t>,
 ): result<multiChainEventComparitor, exn> => {
-  let comparitorFunction = if isUnorderedHeadMode {
+  let comparitorFunction = if isUnorderedMultichainMode {
     chainFetcherPeekComparitorEarliestEventPrioritizeEvents
   } else {
     isQueueItemEarlier
@@ -85,12 +85,10 @@ let createDetermineNextEventFunction = (
     })
 
   switch nextItem {
-  | None => Error(NoItemsInArray)
+  | None => Error(NoItemsInArray) //Should not hit this case
   | Some(item) => Ok(item)
   }
 }
-
-let determineNextEvent = createDetermineNextEventFunction
 
 let makeFromConfig = (~configs: Config.chainConfigs): t => {
   let chainFetchers = configs->ChainMap.map(chainConfig => {
@@ -104,7 +102,7 @@ let makeFromConfig = (~configs: Config.chainConfigs): t => {
   {
     chainFetchers,
     arbitraryEventPriorityQueue: list{},
-    isUnorderedHeadMode: Config.isUnorderedHeadMode,
+    isUnorderedMultichainMode: Config.isUnorderedMultichainMode,
   }
 }
 
@@ -124,7 +122,7 @@ let makeFromDbState = async (~configs: Config.chainConfigs): t => {
   let chainFetchers = ChainMap.fromArray(chainFetchersArr)->Utils.unwrapResultExn //Can safely unwrap since it is being mapped from Config
 
   {
-    isUnorderedHeadMode: Config.isUnorderedHeadMode,
+    isUnorderedMultichainMode: Config.isUnorderedMultichainMode,
     arbitraryEventPriorityQueue: list{},
     chainFetchers,
   }
@@ -246,22 +244,50 @@ type earliestQueueItem =
   | ArbitraryEventQueue(Types.eventBatchQueueItem, list<Types.eventBatchQueueItem>)
   | EventFetchers(Types.eventBatchQueueItem, ChainMap.t<FetchState.t>)
 
+let rec getFirstArbitraryEventsItemForChain = (
+  ~revHead=list{},
+  ~chain,
+  queue: list<Types.eventBatchQueueItem>,
+) => {
+  switch queue {
+  | list{} => None
+  | list{first, ...tail} =>
+    if first.chain == chain {
+      let rest = revHead->List.reverseConcat(tail)
+      Some((first, rest))
+    } else {
+      tail->getFirstArbitraryEventsItemForChain(~chain, ~revHead=list{first, ...revHead})
+    }
+  }
+}
+
+let getFirstArbitraryEventsItem = (queue: list<Types.eventBatchQueueItem>) =>
+  switch queue {
+  | list{} => None
+  | list{first, ...tail} => Some((first, tail))
+  }
+
 let popBatchItem = (
   ~fetchStatesMap: ChainMap.t<FetchState.t>,
   ~arbitraryEventQueue: list<Types.eventBatchQueueItem>,
-  ~isUnorderedHeadMode,
+  ~isUnorderedMultichainMode,
 ): option<earliestQueueItem> => {
   //Compare the peeked items and determine the next item
   let {chain, earliestEventResponse: {updatedFetchState, earliestQueueItem}} =
-    fetchStatesMap->determineNextEvent(~isUnorderedHeadMode)->Utils.unwrapResultExn
+    fetchStatesMap->determineNextEvent(~isUnorderedMultichainMode)->Utils.unwrapResultExn
 
-  switch arbitraryEventQueue {
+  let maybeArbItem = if isUnorderedMultichainMode {
+    arbitraryEventQueue->getFirstArbitraryEventsItemForChain(~chain)
+  } else {
+    arbitraryEventQueue->getFirstArbitraryEventsItem
+  }
+  switch maybeArbItem {
   //If there is item on the arbitray events queue, and it is earlier than
   //than the earlist event, take the item off from there
-  | list{item, ...tail}
-    if Item(item)->getQueueItemComparitor(~chain=item.chain) <
+  | Some((qItem, updatedArbQueue))
+    if Item(qItem)->getQueueItemComparitor(~chain=qItem.chain) <
       earliestQueueItem->getQueueItemComparitor(~chain) =>
-    Some(ArbitraryEventQueue(item, tail))
+    Some(ArbitraryEventQueue(qItem, updatedArbQueue))
   | _ =>
     //Otherwise take the latest item from the fetchers
     switch earliestQueueItem {
@@ -271,6 +297,18 @@ let popBatchItem = (
       EventFetchers(qItem, updatedFetchStatesMap)->Some
     }
   }
+}
+
+/**
+Simply calls popBatchItem in isolation using the chain manager without
+the context of a batch
+*/
+let peakNextBatchItem = (self: t): option<earliestQueueItem> => {
+  popBatchItem(
+    ~fetchStatesMap=self.chainFetchers->ChainMap.map(cf => cf.fetchState),
+    ~arbitraryEventQueue=self.arbitraryEventPriorityQueue,
+    ~isUnorderedMultichainMode=self.isUnorderedMultichainMode,
+  )
 }
 
 type batchRes = {
@@ -293,12 +331,12 @@ let rec createBatchInternal = (
   ~fetchStatesMap,
   ~arbitraryEventQueue,
   ~batchRev,
-  ~isUnorderedHeadMode,
+  ~isUnorderedMultichainMode,
 ) => {
   if currentBatchSize >= maxBatchSize {
     makeBatch(~batchRev, ~currentBatchSize, ~fetchStatesMap, ~arbitraryEventQueue)
   } else {
-    switch popBatchItem(~fetchStatesMap, ~arbitraryEventQueue, ~isUnorderedHeadMode) {
+    switch popBatchItem(~fetchStatesMap, ~arbitraryEventQueue, ~isUnorderedMultichainMode) {
     | None => makeBatch(~batchRev, ~currentBatchSize, ~fetchStatesMap, ~arbitraryEventQueue)
     | Some(item) =>
       let (arbitraryEventQueue, fetchStatesMap, nextItem) = switch item {
@@ -316,7 +354,7 @@ let rec createBatchInternal = (
         ~arbitraryEventQueue,
         ~fetchStatesMap,
         ~currentBatchSize=currentBatchSize + 1,
-        ~isUnorderedHeadMode,
+        ~isUnorderedMultichainMode,
       )
     }
   }
@@ -334,7 +372,7 @@ let createBatch = (self: t, ~maxBatchSize: int) => {
     ~currentBatchSize=0,
     ~fetchStatesMap,
     ~arbitraryEventQueue=arbitraryEventPriorityQueue,
-    ~isUnorderedHeadMode=self.isUnorderedHeadMode,
+    ~isUnorderedMultichainMode=self.isUnorderedMultichainMode,
   )
 
   if response.batchSize > 0 {
@@ -366,5 +404,5 @@ let createBatch = (self: t, ~maxBatchSize: int) => {
 module ExposedForTesting_Hidden = {
   let priorityQueueComparitor = priorityQueueComparitor
   let getComparitorFromItem = getComparitorFromItem
-  let createDetermineNextEventFunction = createDetermineNextEventFunction
+  let createDetermineNextEventFunction = determineNextEvent
 }

@@ -391,13 +391,12 @@ let createEntityRelationship = async (
   ~tableName: string,
   ~relationshipType: string,
   ~relationalKey: string,
+  ~objectName: string,
   ~mappedEntity: string,
-  ~derivedFromFieldKey: string,
+  ~isDerivedFrom: bool,
 ) => {
-  let isDerivedFrom = derivedFromFieldKey != ""
-  let derivedFromTo = isDerivedFrom ? `"id": "${derivedFromFieldKey}"` : `"${relationalKey}" : "id"`
+  let derivedFromTo = isDerivedFrom ? `"id": "${relationalKey}"` : `"${relationalKey}_id" : "id"`
 
-  let objectName = isDerivedFrom ? relationalKey : `${relationalKey}Object`
   let bodyString = `{"type": "pg_create_${relationshipType}_relationship","args": {"table": "${tableName}","name": "${objectName}","source": "default","using": {"manual_configuration": {"remote_table": "${mappedEntity}","column_mapping": {${derivedFromTo}}}}}}`
 
   let response = await fetch(

@@ -21,7 +21,7 @@ type contextCreator<'eventArgs, 'loaderContext, 'handlerContext, 'handlerContext
 
 let getEventIdentifier = (event: Types.eventLog<'a>, ~chainId): Types.eventIdentifier => {
   chainId,
-  timestamp: event.blockTimestamp,
+  blockTimestamp: event.blockTimestamp,
   blockNumber: event.blockNumber,
   logIndex: event.logIndex,
 }
@@ -97,7 +97,7 @@ module GreeterContract = {
 
             inMemoryStore.dynamicContractRegistry->IO.InMemoryStore.DynamicContractRegistry.set(
               ~key={chainId, contractAddress},
-              ~entity=Set(dynamicContractRegistration, ""->Obj.magic),
+              ~entity=dynamicContractRegistration,
             )
           },
         },
@@ -163,17 +163,11 @@ module GreeterContract = {
                 | None =>
                   let entities = await asyncGetters.getUser(id)
 
-                  switch entities->Belt.Array.get(0) {
-                  | Some(entity) =>
-                    // TODO: make this work with the test framework too.
-                    IO.InMemoryStore.User.set(
-                      inMemoryStore.user,
-                      ~key=entity.id,
-                      ~entity=Set(entity, eventIdentifier),
-                    )
-                    Some(entity)
-                  | None => None
-                  }
+                  let optEntity = entities->Belt.Array.get(0)
+
+                  IO.InMemoryStore.User.initValue(inMemoryStore.user, ~key=id, ~entity=optEntity)
+
+                  optEntity
                 }
               }
             },
@@ -260,7 +254,7 @@ module GreeterContract = {
 
             inMemoryStore.dynamicContractRegistry->IO.InMemoryStore.DynamicContractRegistry.set(
               ~key={chainId, contractAddress},
-              ~entity=Set(dynamicContractRegistration, ""->Obj.magic),
+              ~entity=dynamicContractRegistration,
             )
           },
         },
@@ -326,17 +320,11 @@ module GreeterContract = {
                 | None =>
                   let entities = await asyncGetters.getUser(id)
 
-                  switch entities->Belt.Array.get(0) {
-                  | Some(entity) =>
-                    // TODO: make this work with the test framework too.
-                    IO.InMemoryStore.User.set(
-                      inMemoryStore.user,
-                      ~key=entity.id,
-                      ~entity=Set(entity, eventIdentifier),
-                    )
-                    Some(entity)
-                  | None => None
-                  }
+                  let optEntity = entities->Belt.Array.get(0)
+
+                  IO.InMemoryStore.User.initValue(inMemoryStore.user, ~key=id, ~entity=optEntity)
+
+                  optEntity
                 }
               }
             },

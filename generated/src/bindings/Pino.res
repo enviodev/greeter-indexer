@@ -17,6 +17,7 @@ type logLevelUser = [
 type logLevel = [logLevelBuiltin | logLevelUser]
 
 type pinoMessageBlob
+@genType
 type t = {
   trace: (. pinoMessageBlob) => unit,
   debug: (. pinoMessageBlob) => unit,
@@ -104,4 +105,66 @@ let createChildParams: 'a => childParams = Obj.magic
 module ECS = {
   @module
   external make: 'a => options = "@elastic/ecs-pino-format"
+}
+
+/**
+Jank solution to make logs use console log wrather than stream.write so that ink 
+can render the logs statically.
+*/
+module MultiStreamLogger = {
+  type stream = {write: string => unit}
+  type multiStream = {stream: stream, level: logLevel}
+  type multiStreamRes
+  @module("pino") external multistream: array<multiStream> => multiStreamRes = "multistream"
+
+  @module external makeWithMultiStream: (options, multiStreamRes) => t = "pino"
+
+  type destinationOpts = {
+    dest: string, //file path
+    sync: bool,
+    mkdir: bool,
+  }
+  @module("pino") external destination: destinationOpts => stream = "destination"
+
+  type prettyFactoryOpts = {...options, customColors?: string}
+  @module("pino-pretty")
+  external prettyFactory: prettyFactoryOpts => (. string) => string = "prettyFactory"
+
+  let makeFormatter = logLevels => {
+    prettyFactory({
+      customLevels: logLevels,
+      customColors: "fatal:bgRed,error:red,warn:yellow,info:green,udebug:bgBlue,uinfo:bgGreen,uwarn:bgYellow,uerror:bgRed,debug:blue,trace:gray",
+    })
+  }
+
+  let makeStreams = (~userLogLevel, ~formatter, ~logFile, ~defaultFileLogLevel) => {
+    let stream = {
+      stream: {write: v => formatter(. v)->Js.log},
+      level: userLogLevel,
+    }
+    let maybeFileStream = logFile->Belt.Option.mapWithDefault([], dest => [
+      {
+        level: defaultFileLogLevel,
+        stream: destination({dest, sync: false, mkdir: true}),
+      },
+    ])
+    [stream]->Belt.Array.concat(maybeFileStream)
+  }
+
+  let make = (
+    ~userLogLevel: logLevel,
+    ~customLevels: Js.Dict.t<int>,
+    ~logFile: option<string>,
+    ~options: option<options>,
+    ~defaultFileLogLevel,
+  ) => {
+    let options = switch options {
+    | Some(opts) => {...opts, customLevels, level: userLogLevel}
+    | None => {customLevels, level: userLogLevel}
+    }
+    let formatter = makeFormatter(customLevels)
+    let ms = makeStreams(~userLogLevel, ~formatter, ~logFile, ~defaultFileLogLevel)->multistream
+
+    makeWithMultiStream(options, ms)
+  }
 }

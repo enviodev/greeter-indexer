@@ -13,13 +13,35 @@ module ChainMetadata = {
     @as("chain_id") chainId: int,
     @as("block_height") blockHeight: int,
     @as("start_block") startBlock: int,
+    @as("first_event_block_number") firstEventBlockNumber: option<int>,
+    @as("latest_processed_block") latestProcessedBlock: option<int>,
+    @as("num_events_processed") numEventsProcessed: option<int>,
   }
 
   @module("./DbFunctionsImplementation.js")
-  external setChainMetadata: (Postgres.sql, chainMetadata) => promise<unit> = "setChainMetadata"
+  external setChainMetadataBlockHeight: (Postgres.sql, chainMetadata) => promise<unit> =
+    "setChainMetadataBlockHeight"
+  @module("./DbFunctionsImplementation.js")
+  external batchSetChainMetadata: (Postgres.sql, array<chainMetadata>) => promise<unit> =
+    "batchSetChainMetadata"
 
-  let setChainMetadataRow = (~chainId, ~startBlock, ~blockHeight) => {
-    sql->setChainMetadata({chainId, startBlock, blockHeight})
+  @module("./DbFunctionsImplementation.js")
+  external readLatestChainMetadataState: (
+    Postgres.sql,
+    ~chainId: int,
+  ) => promise<array<chainMetadata>> = "readLatestChainMetadataState"
+
+  let setChainMetadataBlockHeightRow = (~chainMetadata: chainMetadata) => {
+    sql->setChainMetadataBlockHeight(chainMetadata)
+  }
+
+  let batchSetChainMetadataRow = (~chainMetadataArray: array<chainMetadata>) => {
+    sql->batchSetChainMetadata(chainMetadataArray)
+  }
+
+  let getLatestChainMetadataState = async (~chainId) => {
+    let arr = await sql->readLatestChainMetadataState(~chainId)
+    arr->Belt.Array.get(0)
   }
 }
 
@@ -136,35 +158,34 @@ module DynamicContractRegistry = {
 
 @spice
 type entityHistoryItem = {
-  chain_id: int,
-  previous_block_number: option<int>,
-  previous_log_index: option<int>,
   block_timestamp: int,
+  chain_id: int,
   block_number: int,
   log_index: int,
-  transaction_hash: string,
+  previous_block_timestamp: option<int>,
+  previous_chain_id: option<int>,
+  previous_block_number: option<int>,
+  previous_log_index: option<int>,
+  params: option<string>,
   entity_type: string,
   entity_id: string,
-  params: option<string>,
 }
 
 module EntityHistory = {
   @module("./DbFunctionsImplementation.js")
   external batchSetInternal: (
     Postgres.sql,
-    ~withPrev: array<Js.Json.t>,
-    ~withoutPrev: array<entityHistoryItem>,
-  ) => promise<unit> = "batchSetEntityHistoryTable"
+    ~entityHistoriesToSet: array<Js.Json.t>,
+  ) => promise<unit> = "batchInsertEntityHistory"
 
-  let batchSet = (~withPrev) => {
+  let batchSet = (sql, ~entityHistoriesToSet) => {
     //Encode null for for the with prev types so that it's not undefined
-    batchSetInternal(~withPrev=withPrev->Belt.Array.map(entityHistoryItem_encode))
+    batchSetInternal(
+      sql,
+      ~entityHistoriesToSet=entityHistoriesToSet->Belt.Array.map(entityHistoryItem_encode),
+    )
   }
 
-  /**
-  Ther raw response of a single row returned from postgres
-  with the getRollbackDiff query
-  */
   @spice
   type rollbackDiffResponseRaw = {
     entity_type: Types.entityName,
@@ -176,29 +197,17 @@ module EntityHistory = {
     val: option<Js.Json.t>,
   }
 
-  /**
-  If there was an entity previously set with the rollback diff
-  this is the entity value and its event eventIdentifier
-  */
   type previousEntity = {
     eventIdentifier: Types.eventIdentifier,
     entity: Types.entity,
   }
 
-  /**
-  A sanitized version of the rollbackDiffResponseRaw, that
-  represents valid state for rescript use
-  */
   type rollbackDiffResponse = {
     entityType: Types.entityName,
     entityId: string,
     previousEntity: option<previousEntity>,
   }
 
-  /**
-  Takes the raw response from "getRollbackDiffInternal" and sanitizes
-  it into "rollbackDiffResponse" type
-  */
   let rollbackDiffResponse_decode = (json: Js.Json.t) => {
     json
     ->rollbackDiffResponseRaw_decode
@@ -208,7 +217,7 @@ module EntityHistory = {
           val: Some(val),
           chain_id: Some(chainId),
           block_number: Some(blockNumber),
-          block_timestamp: Some(timestamp),
+          block_timestamp: Some(blockTimestamp),
           log_index: Some(logIndex),
           entity_type,
         } =>
@@ -217,7 +226,7 @@ module EntityHistory = {
         ->Belt.Result.map(entity => {
           let eventIdentifier: Types.eventIdentifier = {
             chainId,
-            timestamp,
+            blockTimestamp,
             blockNumber,
             logIndex,
           }
@@ -233,16 +242,10 @@ module EntityHistory = {
     })
   }
 
-  /**
-  Decodes an array of raw rollback diff responses
-  */
   let rollbackDiffResponseArr_decode = (jsonArr: array<Js.Json.t>) => {
     jsonArr->Belt.Array.map(rollbackDiffResponse_decode)->Utils.mapArrayOfResults
   }
 
-  /**
-  Gets unsanitized raw response from postgres
-  */
   @module("./DbFunctionsImplementation.js")
   external getRollbackDiffInternal: (
     Postgres.sql,
@@ -251,9 +254,6 @@ module EntityHistory = {
     ~blockNumber: int,
   ) => promise<array<Js.Json.t>> = "getRollbackDiff"
 
-  /**
-  Gets sanitized array of rollbackDiffResponse from postgres
-  */
   let getRollbackDiff = (sql, ~blockTimestamp: int, ~chainId: int, ~blockNumber: int) =>
     getRollbackDiffInternal(sql, ~blockTimestamp, ~chainId, ~blockNumber)->Promise.thenResolve(
       rollbackDiffResponseArr_decode,

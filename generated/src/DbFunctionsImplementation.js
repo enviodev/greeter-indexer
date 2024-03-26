@@ -27,7 +27,37 @@ module.exports.batchSetEventSyncState = (sql, entityDataArray) => {
     `;
 };
 
-module.exports.setChainMetadata = (sql, entityDataArray) => {
+module.exports.readLatestChainMetadataState = (sql, chainId) => sql`
+  SELECT *
+  FROM public.chain_metadata
+  WHERE chain_id = ${chainId}`;
+
+module.exports.batchSetChainMetadata = (sql, entityDataArray) => {
+  return (sql`
+    INSERT INTO public.chain_metadata
+  ${sql(
+    entityDataArray,
+    "chain_id",
+    "start_block", // this is left out of the on conflict below as it only needs to be set once
+    "block_height",
+    "first_event_block_number",
+    "latest_processed_block",
+    "num_events_processed",
+  )}
+  ON CONFLICT(chain_id) DO UPDATE
+  SET
+  "chain_id" = EXCLUDED."chain_id",
+  "first_event_block_number" = EXCLUDED."first_event_block_number",
+  "latest_processed_block" = EXCLUDED."latest_processed_block",
+  "num_events_processed" = EXCLUDED."num_events_processed",
+  "block_height" = EXCLUDED."block_height";`).then(res => {
+
+  }).catch(err => {
+    console.log("errored", err)
+  });
+};
+
+module.exports.setChainMetadataBlockHeight = (sql, entityDataArray) => {
   return (sql`
     INSERT INTO public.chain_metadata
   ${sql(
@@ -40,7 +70,7 @@ module.exports.setChainMetadata = (sql, entityDataArray) => {
   SET
   "chain_id" = EXCLUDED."chain_id",
   "block_height" = EXCLUDED."block_height";`).then(res => {
-    
+
   }).catch(err => {
     console.log("errored", err)
   });
@@ -147,128 +177,42 @@ const chunkBatchQuery = (
     throw e;
     });
 };
-const arrayToSqlValues = (dataArray) => {
-  return dataArray.map(item => {
-    return `(${item.chain_id}, '${item.entity_id}', ${item.block_number}, ${item.log_index}, '${item.transaction_hash}', '${item.entity_type}', (SELECT block_number FROM "public"."entity_history" 
-              WHERE entity_id = '${item.entity_id}'
-              ORDER BY block_number DESC 
-              LIMIT 1))`;
-  }).join(', ');
-}
 
-function mergeArrays(array1, array2) {
-  const array2Map = new Map(array2.map(item => [item.entity_id, item]));
+module.exports.batchInsertEntityHistory = async (sql, entityDataArray) => {
+  for (const entity of entityDataArray) {
+    // Prepare parameters, ensuring undefined values are explicitly set to null
+    const {
+      block_timestamp,
+      chain_id,
+      block_number,
+      log_index,
+      params,
+      entity_type,
+      entity_id,
+      previous_block_timestamp = null,
+      previous_chain_id = null,
+      previous_block_number = null,
+      previous_log_index = null
+    } = entity;
 
-  return array1.map(item => {
-    const match = array2Map.get(item.entity_id);
-    if (match) {
-      return {
-        ...item,
-        previous_block_number: match.previous_block_number,
-        previous_log_index: match.previous_log_index
-      };
-    }
-    else {
-      return item;
-    }
-  });
-}
-
-const fetchPreviousBlockNumbersAndLogIndices = async (sql, entityDataArray) => {
-  const entityIds = entityDataArray.map(item => item.entity_id);
-  const uniqueEntityIds = [...new Set(entityIds)]; // Remove duplicates
-
-  const previousBlockNumbersAndLogIndices = await sql`
-    SELECT entity_id, block_number as previous_block_number, log_index as previous_log_index
-    FROM "public"."entity_history"
-    WHERE (entity_id, block_number, log_index) IN (
-      SELECT entity_id, MAX(block_number), MAX(log_index)
-      FROM "public"."entity_history"
-      WHERE entity_id = ANY(${sql.array(uniqueEntityIds)})
-      GROUP BY entity_id
-    )
-  `;
-
-  let merge = mergeArrays(entityDataArray, previousBlockNumbersAndLogIndices)
-
-  return merge
+    // Call the PostgreSQL function for each entity
+    await sql`
+      SELECT insert_entity_history(
+        ${block_timestamp},
+        ${chain_id},
+        ${block_number},
+        ${log_index},
+        ${params},
+        ${entity_type},
+        ${entity_id},
+        ${previous_block_timestamp},
+        ${previous_chain_id},
+        ${previous_block_number},
+        ${previous_log_index}
+      )
+    `;
+  }
 };
-
-const batchSetEntityHistory = async (sql, entityDataArray) => {
-  return sql`
-    INSERT INTO "public"."entity_history"
-  ${sql(
-    entityDataArray,
-    "chain_id",
-    "entity_id",
-    "block_timestamp",
-    "block_number",
-    "log_index",
-    "transaction_hash",
-    "entity_type",
-    "previous_block_number",
-    "previous_log_index",
-    "params",
-  )};`;
-};
-
-module.exports.batchSetEntityHistoryTable = async (
-  sql,
-  entityDataArrayWithPrev,
-  entityDataArrayWithoutPrev,
-) => {
-  const result = await fetchPreviousBlockNumbersAndLogIndices(
-    sql,
-    entityDataArrayWithoutPrev,
-  );
-  const previousData = [...result, ...entityDataArrayWithPrev];
-  return chunkBatchQuery(sql, previousData, batchSetEntityHistory);
-};
-
-module.exports.getRollbackDiff = (
-  sql,
-  blockTimestamp,
-  chainId,
-  blockNumber,
-) => sql`
-SELECT DISTINCT
-    ON (
-        COALESCE(old.entity_id, new.entity_id)
-    ) COALESCE(old.entity_id, new.entity_id) AS entity_id,
-    COALESCE(old.params, 'null') AS val,
-    COALESCE(old.block_timestamp, 'null') AS block_timestamp,
-    COALESCE(old.chain_id, 'null') AS chain_id,
-    COALESCE(old.block_number, 'null') AS block_number,
-    COALESCE(old.log_index, 'null') AS log_index,
-    COALESCE(old.entity_type, new.entity_type) AS entity_type
-
-FROM entity_history old
-INNER JOIN
-    entity_history next
-    -- next should simply be a higher block multichain
-    ON (
-        next.block_timestamp > ${blockTimestamp}
-        OR (next.block_timestamp = ${blockTimestamp} AND next.chain_id > ${chainId})
-        OR (
-            next.block_timestamp = ${blockTimestamp} AND next.chain_id = ${chainId} AND next.block_number >= ${blockNumber}
-        )
-    )
-    -- old should be a lower block multichain
-    AND (
-        old.block_timestamp < ${blockTimestamp}
-        OR (old.block_timestamp = ${blockTimestamp} AND old.chain_id < ${chainId})
-        OR (old.block_timestamp = ${blockTimestamp} AND old.chain_id = ${chainId} AND old.block_number <= ${blockNumber})
-    )
-    -- old AND new ids AND entity types should match
-    AND old.entity_id = next.entity_id
-    AND old.entity_type = next.entity_type
-    AND old.block_number = next.previous_block_number
-FULL OUTER JOIN
-    entity_history new
-    ON old.entity_id = new.entity_id
-    AND new.previous_block_number >= old.block_number
-WHERE COALESCE(old.block_number, 0) <= ${blockNumber} AND COALESCE(new.block_number, ${blockNumber} + 1) >= ${blockNumber};
-`;
 
 module.exports.batchSetRawEvents = (sql, entityDataArray) => {
   return chunkBatchQuery(
@@ -336,14 +280,60 @@ module.exports.batchDeleteDynamicContractRegistry = (sql, entityIdArray) => sql`
   WHERE (chain_id, contract_address) IN ${sql(entityIdArray)};`;
 // end db operations for dynamic_contract_registry
 
+
+module.exports.getRollbackDiff = (
+  sql,
+  blockTimestamp,
+  chainId,
+  blockNumber
+) => sql`
+SELECT DISTINCT
+    ON (
+        COALESCE(old.entity_id, new.entity_id)
+    ) COALESCE(old.entity_id, new.entity_id) AS entity_id,
+    COALESCE(old.params, 'null') AS val,
+    COALESCE(old.block_timestamp, 'null') AS block_timestamp,
+    COALESCE(old.chain_id, 'null') AS chain_id,
+    COALESCE(old.block_number, 'null') AS block_number,
+    COALESCE(old.log_index, 'null') AS log_index,
+    COALESCE(old.entity_type, new.entity_type) AS entity_type
+
+FROM entity_history old
+INNER JOIN
+    entity_history next
+    -- next should simply be a higher block multichain
+    ON (
+        next.block_timestamp > ${blockTimestamp}
+        OR (next.block_timestamp = ${blockTimestamp} AND next.chain_id > ${chainId})
+        OR (
+            next.block_timestamp = ${blockTimestamp} AND next.chain_id = ${chainId} AND next.block_number >= ${blockNumber}
+        )
+    )
+    -- old should be a lower block multichain
+    AND (
+        old.block_timestamp < ${blockTimestamp}
+        OR (old.block_timestamp = ${blockTimestamp} AND old.chain_id < ${chainId})
+        OR (old.block_timestamp = ${blockTimestamp} AND old.chain_id = ${chainId} AND old.block_number <= ${blockNumber})
+    )
+    -- old AND new ids AND entity types should match
+    AND old.entity_id = next.entity_id
+    AND old.entity_type = next.entity_type
+    AND old.block_number = next.previous_block_number
+FULL OUTER JOIN
+    entity_history new
+    ON old.entity_id = new.entity_id
+    AND new.previous_block_number >= old.block_number
+WHERE COALESCE(old.block_number, 0) <= ${blockNumber} AND COALESCE(new.block_number, ${blockNumber} + 1) >= ${blockNumber};
+`;
+
 //////////////////////////////////////////////
 // DB operations for User:
 //////////////////////////////////////////////
 
 module.exports.readUserEntities = (sql, entityIdArray) => sql`
 SELECT 
-"id",
 "greetings",
+"id",
 "latestGreeting",
 "numberOfGreetings"
 FROM "public"."User"
@@ -353,15 +343,15 @@ const batchSetUserCore = (sql, entityDataArray) => {
   return sql`
     INSERT INTO "public"."User"
 ${sql(entityDataArray,
-    "id",
     "greetings",
+    "id",
     "latestGreeting",
     "numberOfGreetings"
   )}
   ON CONFLICT(id) DO UPDATE
   SET
-  "id" = EXCLUDED."id",
   "greetings" = EXCLUDED."greetings",
+  "id" = EXCLUDED."id",
   "latestGreeting" = EXCLUDED."latestGreeting",
   "numberOfGreetings" = EXCLUDED."numberOfGreetings"
   `;

@@ -1,5 +1,31 @@
 open Belt
 
+module EventsProcessed = {
+  type eventsProcessed = {
+    numEventsProcessed: int,
+    latestProcessedBlock: option<int>,
+  }
+  type t = ChainMap.t<eventsProcessed>
+
+  let makeEmpty = () => {
+    ChainMap.make(_ => {numEventsProcessed: 0, latestProcessedBlock: None})
+  }
+
+  let makeFromChainManager = (cm: ChainManager.t): t => {
+    cm.chainFetchers->ChainMap.map(({numEventsProcessed, latestProcessedBlock}) => {
+      numEventsProcessed,
+      latestProcessedBlock,
+    })
+  }
+
+  let updateEventsProcessed = (self: t, ~chain, ~blockNumber) => {
+    self->ChainMap.update(chain, ({numEventsProcessed}) => {
+      numEventsProcessed: numEventsProcessed + 1,
+      latestProcessedBlock: Some(blockNumber),
+    })
+  }
+}
+
 let addEventToRawEvents = (
   event: Types.eventLog<'a>,
   ~inMemoryStore: IO.InMemoryStore.t,
@@ -36,17 +62,7 @@ let addEventToRawEvents = (
 
   inMemoryStore.rawEvents->IO.InMemoryStore.RawEvents.set(
     ~key={chainId, eventId: eventIdStr},
-    ~entity=Types.Set(
-      rawEvent,
-      {
-        // Setting this all to `-1` to show it isn't needed in hackathon
-        // TODO: make raw events have its own type.
-        chainId: -1,
-        timestamp: -1,
-        blockNumber: -1,
-        logIndex: -1,
-      },
-    ),
+    ~entity=rawEvent,
   )
 }
 
@@ -58,22 +74,13 @@ let updateEventSyncState = (
   let {blockNumber, logIndex, transactionIndex, blockTimestamp} = event
   let _ = inMemoryStore.eventSyncState->IO.InMemoryStore.EventSyncState.set(
     ~key=chainId,
-    ~entity=Set(
-      {
-        chainId,
-        blockTimestamp,
-        blockNumber,
-        logIndex,
-        transactionIndex,
-      },
-      // TODO: make thes not needed
-      {
-        chainId: -1,
-        blockNumber: -1,
-        timestamp: -1,
-        logIndex: -1,
-      },
-    ),
+    ~entity={
+      chainId,
+      blockTimestamp,
+      blockNumber,
+      logIndex,
+      transactionIndex,
+    },
   )
 }
 
@@ -87,6 +94,8 @@ let handleEvent = (
   ~event,
   ~eventName,
   ~cb,
+  ~latestProcessedBlocks: EventsProcessed.t,
+  ~chain,
 ) => {
   event->updateEventSyncState(~chainId, ~inMemoryStore)
 
@@ -99,21 +108,27 @@ let handleEvent = (
     ~logger=context.logger,
   )
 
+  let latestProcessedBlocks =
+    latestProcessedBlocks->EventsProcessed.updateEventsProcessed(
+      ~chain,
+      ~blockNumber=event.blockNumber,
+    )
+
   switch handlerWithContextGetter {
   | Sync({handler, contextGetter}) =>
     //Call the context getter here, ensures no stale values in the context
     //Since loaders and previous handlers have already run
     let handlerContext = contextGetter(context)
-    switch handler(~event, ~context=handlerContext) {
+    switch handler({event, context: handlerContext}) {
     | exception exn => Error(makeErr(exn))
-    | () => Ok()
+    | () => Ok(latestProcessedBlocks)
     }->cb
   | Async({handler, contextGetter}) =>
     //Call the context getter here, ensures no stale values in the context
     //Since loaders and previous handlers have already run
     let handlerContext = contextGetter(context)
-    handler(~event, ~context=handlerContext)
-    ->Promise.thenResolve(_ => cb(Ok()))
+    handler({event, context: handlerContext})
+    ->Promise.thenResolve(_ => cb(Ok(latestProcessedBlocks)))
     ->Promise.catch(exn => {
       cb(Error(makeErr(exn)))
       Promise.resolve()
@@ -122,8 +137,14 @@ let handleEvent = (
   }
 }
 
-let eventRouter = (item: Context.eventRouterEventAndContext, ~inMemoryStore, ~cb) => {
+let eventRouter = (
+  item: Context.eventRouterEventAndContext,
+  ~inMemoryStore,
+  ~cb,
+  ~latestProcessedBlocks: EventsProcessed.t,
+) => {
   let {event, chainId} = item
+  let chain = chainId->ChainMap.Chain.fromChainId->Utils.unwrapResultExn
 
   switch event {
   | GreeterContract_NewGreetingWithContext(event, context) =>
@@ -136,6 +157,8 @@ let eventRouter = (item: Context.eventRouterEventAndContext, ~inMemoryStore, ~cb
       ~inMemoryStore,
       ~cb,
       ~context,
+      ~latestProcessedBlocks,
+      ~chain,
     )
 
   | GreeterContract_ClearGreetingWithContext(event, context) =>
@@ -148,6 +171,8 @@ let eventRouter = (item: Context.eventRouterEventAndContext, ~inMemoryStore, ~cb
       ~inMemoryStore,
       ~cb,
       ~context,
+      ~latestProcessedBlocks,
+      ~chain,
     )
   }
 }
@@ -192,7 +217,7 @@ let composeGetReadEntity = (
   ~inMemoryStore,
   ~logger,
   ~asyncGetters,
-  ~getLoader,
+  ~getLoader: unit => Handlers.loader<_>,
   ~item: Types.eventBatchQueueItem,
   ~entitiesToLoad,
   ~dynamicContractRegistrations: option<dynamicContractRegistrations>,
@@ -218,7 +243,7 @@ let composeGetReadEntity = (
 
   let loader = getLoader()
 
-  switch loader(~event, ~context) {
+  switch loader({event, context}) {
   | exception exn =>
     let errorHandler =
       exn->ErrorHandling.make(
@@ -420,6 +445,7 @@ let registerProcessEventBatchMetrics = (
 let processEventBatch = async (
   ~eventBatch: list<Types.eventBatchQueueItem>,
   ~inMemoryStore: IO.InMemoryStore.t,
+  ~latestProcessedBlocks: EventsProcessed.t,
   ~checkContractIsRegistered,
 ) => {
   let logger = Logging.createChild(
@@ -434,33 +460,37 @@ let processEventBatch = async (
   | Ok({val: eventBatchAndContext, dynamicContractRegistrations}) =>
     let elapsedAfterLoad = timeRef->Hrtime.timeSince->Hrtime.toMillis->Hrtime.intFromMillis
 
-    switch await eventBatchAndContext->Belt.Array.reduce(Promise.resolve(Ok()), async (
-      previousPromise,
-      event,
-    ) => {
-      switch await previousPromise {
-      | Error(e) => Error(e)
-      | Ok() =>
-        await Promise.make((resolve, _reject) =>
-          event->eventRouter(~inMemoryStore, ~cb=res => resolve(. res))
-        )
-      }
-    }) {
-    | Ok() =>
+    switch await eventBatchAndContext->Belt.Array.reduce(
+      Promise.resolve(Ok(latestProcessedBlocks)),
+      async (previousPromise, event) => {
+        switch await previousPromise {
+        | Error(e) => Error(e)
+        | Ok(latestProcessedBlocks) =>
+          await Promise.make((resolve, _reject) =>
+            event->eventRouter(~inMemoryStore, ~cb=res => resolve(. res), ~latestProcessedBlocks)
+          )
+        }
+      },
+    ) {
+    | Ok(latestProcessedBlocks) =>
       let elapsedTimeAfterProcess = timeRef->Hrtime.timeSince->Hrtime.toMillis->Hrtime.intFromMillis
-      await DbFunctions.sql->IO.executeBatch(~inMemoryStore)
+      switch await DbFunctions.sql->IO.executeBatch(~inMemoryStore) {
+      | exception exn =>
+        exn->ErrorHandling.make(~msg="Failed writing batch to database", ~logger)->Error
+      | () =>
+        let elapsedTimeAfterDbWrite =
+          timeRef->Hrtime.timeSince->Hrtime.toMillis->Hrtime.intFromMillis
 
-      let elapsedTimeAfterDbWrite = timeRef->Hrtime.timeSince->Hrtime.toMillis->Hrtime.intFromMillis
+        registerProcessEventBatchMetrics(
+          ~logger,
+          ~batchSize=eventBatchAndContext->Array.length,
+          ~loadDuration=elapsedAfterLoad,
+          ~handlerDuration=elapsedTimeAfterProcess - elapsedAfterLoad,
+          ~dbWriteDuration=elapsedTimeAfterDbWrite - elapsedTimeAfterProcess,
+        )
 
-      registerProcessEventBatchMetrics(
-        ~logger,
-        ~batchSize=eventBatchAndContext->Array.length,
-        ~loadDuration=elapsedAfterLoad,
-        ~handlerDuration=elapsedTimeAfterProcess - elapsedAfterLoad,
-        ~dbWriteDuration=elapsedTimeAfterDbWrite - elapsedTimeAfterProcess,
-      )
-
-      {val: (), dynamicContractRegistrations}->Ok
+        {val: latestProcessedBlocks, dynamicContractRegistrations}->Ok
+      }
     | Error(e) => Error(e)
     }
   | Error(e) => Error(e)
