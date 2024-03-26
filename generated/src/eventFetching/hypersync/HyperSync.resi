@@ -12,17 +12,7 @@ type logsQueryPageItem = {
   txOrigin: option<Ethers.ethAddress>,
 }
 
-type blockNumberAndTimestamp = {
-  timestamp: int,
-  blockNumber: int,
-}
-
-type blockNumberAndHash = {
-  blockNumber: int,
-  hash: string,
-}
-
-type blockTimestampPage = hyperSyncPage<blockNumberAndTimestamp>
+type blockTimestampPage = hyperSyncPage<ReorgDetection.lastBlockScannedData>
 type logsQueryPage = hyperSyncPage<logsQueryPageItem>
 
 type missingParams = {
@@ -54,4 +44,4 @@ let pollForHeightGtOrEq: (~serverUrl: string, ~blockNumber: int, ~logger: Pino.t
 let queryBlockHashes: (
   ~serverUrl: string,
   ~blockNumbers: array<int>,
-) => promise<queryResponse<array<blockNumberAndHash>>>
+) => promise<queryResponse<array<ReorgDetection.lastBlockScannedData>>>

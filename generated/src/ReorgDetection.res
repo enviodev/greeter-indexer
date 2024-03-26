@@ -7,7 +7,8 @@ type lastBlockScannedData = {
   blockTimestamp: int,
 }
 
-let getLastBlockScannedDataStub = (page: HyperSync.hyperSyncPage<'item>) => {
+let getLastBlockScannedDataStub = page => {
+  // :  HyperSync.hyperSyncPage<'item>
   let _ = page
 
   {
@@ -17,7 +18,8 @@ let getLastBlockScannedDataStub = (page: HyperSync.hyperSyncPage<'item>) => {
   }
 }
 
-let getParentHashStub = (page: HyperSync.hyperSyncPage<'item>) => {
+let getParentHashStub = page => {
+// : HyperSync.hyperSyncPage<'item>
   let _ = page
   let blockHash = "0x1234"
   Some(blockHash)
@@ -60,7 +62,7 @@ module LastBlockScannedHashes: {
   */
   let rollBackToValidHash: (
     t,
-    ~blockNumbersAndHashes: array<HyperSync.blockNumberAndHash>,
+    ~blockNumbersAndHashes: array<lastBlockScannedData>,
   ) => result<t, exn>
 
   /**
@@ -270,14 +272,11 @@ module LastBlockScannedHashes: {
   Return a BlockNumbersAndHashes.t rolled back to where hashes
   match the provided blockNumberAndHashes
   */
-  let rollBackToValidHash = (
-    self: t,
-    ~blockNumbersAndHashes: array<HyperSync.blockNumberAndHash>,
-  ) => {
+  let rollBackToValidHash = (self: t, ~blockNumbersAndHashes: array<lastBlockScannedData>) => {
     let {confirmedBlockThreshold, lastBlockDataList} = self
     let latestBlockHashes =
       blockNumbersAndHashes
-      ->Belt.Array.map(({blockNumber, hash}) => (blockNumber, hash))
+      ->Belt.Array.map(({blockNumber, blockHash}) => (blockNumber, blockHash))
       ->Belt.Map.Int.fromArray
 
     lastBlockDataList

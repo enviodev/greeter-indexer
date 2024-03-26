@@ -181,6 +181,7 @@ let fetchBlockRange = async (
     //TODO: This is a stub, it will need to be returned in a single query from hypersync
     let lastBlockScannedData = pageUnsafe->ReorgDetection.getLastBlockScannedDataStub
 
+    let _ = pageUnsafe.rollbackGuard
     let reorgGuard = {
       lastBlockScannedData,
       parentHash,
@@ -199,19 +200,24 @@ let fetchBlockRange = async (
 
     //Helper function to fetch the timestamp of the heighest block queried
     //In the case that it is unknown
-    let getHeighestBlockAndTimestampWithDefault = (~default: HyperSync.blockNumberAndTimestamp) => {
+    let getHeighestBlockAndTimestampWithDefault = () => {
       HyperSync.queryBlockTimestampsPage(
         ~serverUrl,
         ~fromBlock=heighestBlockQueried,
         ~toBlock=heighestBlockQueried,
       )->Promise.thenResolve(res =>
-        res->Belt.Result.mapWithDefault(default, page => {
+        switch res {
+        | Ok(page) =>
           //Expected only 1 item but just taking last in case things change and we return
           //a range
           let lastBlockInRangeQueried = page.items->Belt.Array.get(page.items->Array.length - 1)
 
-          lastBlockInRangeQueried->Belt.Option.getWithDefault(default)
-        })
+          switch lastBlockInRangeQueried {
+          | Some(v) => v
+          | None => Js.Exn.raiseError("TODO! should be a value")
+          }
+        | Error(e) => HyperSync.queryErrorToMsq(e)->Js.Exn.raiseError
+        }
       )
     }
 
@@ -220,16 +226,17 @@ let fetchBlockRange = async (
     let logItemsHeighestBlockOpt =
       pageUnsafe.items
       ->Belt.Array.get(pageUnsafe.items->Belt.Array.length - 1)
-      ->Belt.Option.map((item): HyperSync.blockNumberAndTimestamp => {
+      ->Belt.Option.map((item): ReorgDetection.lastBlockScannedData => {
         blockNumber: item.log.blockNumber,
-        timestamp: item.blockTimestamp,
+        blockTimestamp: item.blockTimestamp,
+        blockHash: item.log.blockHash,
       })
 
     let heighestBlockQueriedPromise: promise<
-      HyperSync.blockNumberAndTimestamp,
+      ReorgDetection.lastBlockScannedData,
     > = switch logItemsHeighestBlockOpt {
     | Some(val) =>
-      let {blockNumber, timestamp} = val
+      let {blockNumber, blockTimestamp, blockHash} = val
       if blockNumber == heighestBlockQueried {
         //If the last log item in the current page is equal to the
         //heighest block acounted for in the query. Simply return this
@@ -239,21 +246,14 @@ let fetchBlockRange = async (
         //If it does not match it means that there were no matching logs in the last
         //block so we should fetch the block timestamp with a default of our heighest
         //timestamp (the value in our heighest log)
-        getHeighestBlockAndTimestampWithDefault(
-          ~default={timestamp, blockNumber: heighestBlockQueried},
-        )
+        getHeighestBlockAndTimestampWithDefault()
       }
 
     | None =>
       //If there were no logs at all in the current page query then fetch the
       //timestamp of the heighest block accounted for,
       //defaulting to our current latest blocktimestamp
-      getHeighestBlockAndTimestampWithDefault(
-        ~default={
-          blockNumber: heighestBlockQueried,
-          timestamp: currentLatestBlockTimestamp,
-        },
-      )
+      getHeighestBlockAndTimestampWithDefault()
     }
 
     let parsingTimeRef = Hrtime.makeTimer()
@@ -353,7 +353,8 @@ let fetchBlockRange = async (
 
     let {
       blockNumber: heighestQueriedBlockNumber,
-      timestamp: heighestQueriedBlockTimestamp,
+      blockTimestamp: heighestQueriedBlockTimestamp,
+      blockHash,
     } = await heighestBlockQueriedPromise
 
     let totalTimeElapsed =

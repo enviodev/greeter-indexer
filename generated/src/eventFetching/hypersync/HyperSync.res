@@ -12,17 +12,7 @@ type logsQueryPageItem = {
   txOrigin: option<Ethers.ethAddress>,
 }
 
-type blockNumberAndTimestamp = {
-  timestamp: int,
-  blockNumber: int,
-}
-
-type blockNumberAndHash = {
-  blockNumber: int,
-  hash: string,
-}
-
-type blockTimestampPage = hyperSyncPage<blockNumberAndTimestamp>
+type blockTimestampPage = hyperSyncPage<ReorgDetection.lastBlockScannedData>
 type logsQueryPage = hyperSyncPage<logsQueryPageItem>
 
 type missingParams = {
@@ -117,34 +107,20 @@ module LogsQuery = {
   let checkFields = (event: HyperSyncClient.ResponseTypes.event): logsQueryPageItem => {
     let log = event.log
 
-    let blockTimestamp = event.block->Belt.Option.flatMap(b => b.timestamp)
-    let txOrigin =
-      event.transaction
-      ->Belt.Option.flatMap(b => b.from)
-      ->Belt.Option.flatMap(Ethers.getAddressFromString)
-
-    switch (
-      blockTimestamp,
-      log.address,
-      log.blockHash,
-      log.blockNumber,
-      log.data,
-      log.index,
-      log.transactionHash,
-      log.transactionIndex,
-      log.topics,
-    ) {
-    | (
-        Some(blockTimestamp),
-        Some(address),
-        Some(blockHash),
-        Some(blockNumber),
-        Some(data),
-        Some(index),
-        Some(transactionHash),
-        Some(transactionIndex),
-        Some(topics),
-      ) =>
+    switch event {
+    | {
+        block: {timestamp: blockTimestamp},
+        log: {
+          address,
+          blockHash,
+          blockNumber,
+          data,
+          index,
+          transactionHash,
+          transactionIndex,
+          topics,
+        },
+      } =>
       let topics = topics->Belt.Array.keepMap(Js.Nullable.toOption)
 
       let log: Ethers.log = {
@@ -159,12 +135,17 @@ module LogsQuery = {
         removed: log.removed,
       }
 
+      let txOrigin =
+        event.transaction
+        ->Belt.Option.flatMap(b => b.from)
+        ->Belt.Option.flatMap(Ethers.getAddressFromString)
+
       let pageItem: logsQueryPageItem = {log, blockTimestamp, txOrigin}
       pageItem
     | _ =>
       let missingParams =
         [
-          blockTimestamp->Utils.optionMapNone("log.timestamp"),
+          event.block->Belt.Option.flatMap(b => b.timestamp)->Utils.optionMapNone("log.timestamp"),
           log.address->Utils.optionMapNone("log.address"),
           log.blockHash->Utils.optionMapNone("log.blockHash-"),
           log.blockNumber->Utils.optionMapNone("log.blockNumber"),
@@ -236,7 +217,7 @@ module BlockTimestampQuery = {
     fromBlock,
     toBlockExclusive: toBlockInclusive + 1,
     fieldSelection: {
-      block: [Timestamp, Number],
+      block: [Timestamp, Number, Hash],
     },
     includeAllBlocks: true,
   }
@@ -254,15 +235,16 @@ module BlockTimestampQuery = {
         item.blocks->Belt.Option.mapWithDefault([], blocks => {
           blocks->Belt.Array.map(
             block => {
-              switch (block.number, block.timestamp) {
-              | (Some(blockNumber), Some(blockTimestamp)) =>
-                let timestamp = blockTimestamp->Ethers.BigInt.toInt->Belt.Option.getExn
+              switch block {
+              | {number: blockNumber, timestamp, hash: blockHash} =>
+                let blockTimestamp = timestamp->Ethers.BigInt.toInt->Belt.Option.getExn
                 Ok(
                   (
                     {
-                      timestamp,
+                      blockTimestamp,
                       blockNumber,
-                    }: blockNumberAndTimestamp
+                      blockHash,
+                    }: ReorgDetection.lastBlockScannedData
                   ),
                 )
               | _ =>
@@ -270,6 +252,7 @@ module BlockTimestampQuery = {
                   [
                     block.number->Utils.optionMapNone("block.number"),
                     block.timestamp->Utils.optionMapNone("block.timestamp"),
+                    block.hash->Utils.optionMapNone("block.hash"),
                   ]->Belt.Array.keepMap(p => p)
 
                 Error(
@@ -352,14 +335,14 @@ module BlockHashes = {
     fromBlock: blockNumber,
     toBlockExclusive: blockNumber + 1,
     fieldSelection: {
-      block: [Number, Hash],
+      block: [Number, Hash, Timestamp],
     },
     includeAllBlocks: true,
   }
 
   let convertResponse = (
     res: result<HyperSyncJsonApi.ResponseTypes.queryResponse, QueryHelpers.queryError>,
-  ): queryResponse<array<blockNumberAndHash>> => {
+  ): queryResponse<array<ReorgDetection.lastBlockScannedData>> => {
     switch res {
     | Error(e) => Error(QueryError(e))
     | Ok(successRes) =>
@@ -368,14 +351,16 @@ module BlockHashes = {
         item.blocks->Belt.Option.mapWithDefault([], blocks => {
           blocks->Belt.Array.map(
             block => {
-              switch (block.number, block.hash) {
-              | (Some(blockNumber), Some(hash)) =>
+              switch block {
+              | {number: blockNumber, timestamp, hash: blockHash} =>
+                let blockTimestamp = timestamp->Ethers.BigInt.toInt->Belt.Option.getExn
                 Ok(
                   (
                     {
+                      blockTimestamp,
                       blockNumber,
-                      hash,
-                    }: blockNumberAndHash
+                      blockHash,
+                    }: ReorgDetection.lastBlockScannedData
                   ),
                 )
               | _ =>
@@ -401,7 +386,7 @@ module BlockHashes = {
   }
 
   let queryBlockHash = async (~serverUrl, ~blockNumber): queryResponse<
-    array<blockNumberAndHash>,
+    array<ReorgDetection.lastBlockScannedData>,
   > => {
     let body = makeRequestBody(~blockNumber)
 
