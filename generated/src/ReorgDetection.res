@@ -7,24 +7,6 @@ type blockData = {
   blockTimestamp: int,
 }
 
-let getLastBlockScannedDataStub = page => {
-  // :  HyperSync.hyperSyncPage<'item>
-  let _ = page
-
-  {
-    blockNumber: 0,
-    blockTimestamp: 0,
-    blockHash: "0x1234",
-  }
-}
-
-let getParentHashStub = page => {
-  // : HyperSync.hyperSyncPage<'item>
-  let _ = page
-  let blockHash = "0x1234"
-  Some(blockHash)
-}
-
 module LastBlockScannedHashes: {
   type t
   /**Instantiat t with existing data*/
