@@ -136,6 +136,7 @@ let main = async () => {
       maxBatchSize: Env.maxProcessBatchSize,
       maxPerChainQueueSize: Env.maxPerChainQueueSize,
       indexerStartTime: Js.Date.make(),
+      rollbackState: NoRollback
     }
     let stateUpdatedHook = if shouldUseTui {
       let rerender = EnvioInkApp.startApp(makeAppState(globalState))

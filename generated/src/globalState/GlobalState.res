@@ -1,12 +1,23 @@
 open Belt
+
+type chain = ChainMap.Chain.t
+type rollbackState =
+  NoRollback | RollingBack(chain) | RollbackState(IO.InMemoryStore.t, ChainManager.t)
 type t = {
   chainManager: ChainManager.t,
   currentlyProcessingBatch: bool,
+  rollbackState: rollbackState,
   maxBatchSize: int,
   maxPerChainQueueSize: int,
   indexerStartTime: Js.Date.t,
 }
-type chain = ChainMap.Chain.t
+
+let isRollingBack = state =>
+  switch state.rollbackState {
+  | RollingBack(_) => true
+  | _ => false
+  }
+
 type arbitraryEventQueue = list<Types.eventBatchQueueItem>
 type blockRangeFetchResponse = ChainWorkerTypes.blockRangeFetchResponse<
   HyperSyncWorker.t,
@@ -23,12 +34,14 @@ type action =
   | UpdateQueues(ChainMap.t<FetchState.t>, arbitraryEventQueue)
   | SetSyncedChains
   | ErrorExit(ErrorHandling.t)
+  | SetRollbackState(rollbackState)
 
 type queryChain = CheckAllChains | Chain(chain)
 type task =
   | NextQuery(queryChain)
   | ProcessEventBatch
   | UpdateChainMetaData
+  | Rollback(chain)
 
 let updateChainFetcherCurrentBlockHeight = (chainFetcher: ChainFetcher.t, ~currentBlockHeight) => {
   if currentBlockHeight > chainFetcher.currentBlockHeight {
@@ -189,76 +202,86 @@ let handleBlockRangeResponse = (state, ~chain, ~response: blockRangeFetchRespons
     "stats": stats,
   })
 
-  //TODO: Check reorg has occurred  here and action reorg if need be
-  let {parentHash: _, lastBlockScannedData: _} = reorgGuard
+  let {parentHash, lastBlockScannedData} = reorgGuard
 
-  // lastBlockScannedData->checkHasReorgOccurred(~parentHash, ~currentHeight=currentBlockHeight)
-
-  let updatedFetchState =
-    chainFetcher.fetchState
-    ->FetchState.update(
-      ~latestFetchedBlockTimestamp,
-      ~latestFetchedBlockNumber=heighestQueriedBlockNumber,
-      ~fetchedEvents=parsedQueueItems->List.fromArray,
-      ~id=fetchStateRegisterId,
+  let hasReorgOccurred =
+    chainFetcher.lastBlockScannedHashes->ReorgDetection.LastBlockScannedHashes.hasReorgOccurred(
+      ~parentHash,
     )
-    ->Utils.unwrapResultExn
 
-  let chainFetcher = chainFetcher->updateChainFetcherCurrentBlockHeight(~currentBlockHeight)
-
-  let firstEventBlockNumber = switch parsedQueueItems[0] {
-  | Some(item) if chainFetcher.firstEventBlockNumber->Option.isNone => item.blockNumber->Some
-  | _ => chainFetcher.firstEventBlockNumber
-  }
-
-  let hasArbQueueEvents =
-    state.chainManager.arbitraryEventPriorityQueue
-    ->ChainManager.getFirstArbitraryEventsItemForChain(~chain)
-    ->Option.isSome //TODO this is more expensive than it needs to be
-  let queueSize = updatedFetchState->FetchState.queueSize
-  let hasNoMoreEventsToProcess = !hasArbQueueEvents && queueSize == 0
-
-  let latestProcessedBlock = if hasNoMoreEventsToProcess {
-    updatedFetchState->FetchState.getLatestFullyFetchedBlock->Some
-  } else {
-    chainFetcher.latestProcessedBlock
-  }
-
-  let isFetchingAtHead = if currentBlockHeight <= heighestQueriedBlockNumber {
-    if !chainFetcher.isFetchingAtHead {
-      chainFetcher.logger->Logging.childInfo(
-        "All events have been fetched, they should finish processing the handlers soon.",
+  if !hasReorgOccurred {
+    let updatedFetchState =
+      chainFetcher.fetchState
+      ->FetchState.update(
+        ~latestFetchedBlockTimestamp,
+        ~latestFetchedBlockNumber=heighestQueriedBlockNumber,
+        ~fetchedEvents=parsedQueueItems->List.fromArray,
+        ~id=fetchStateRegisterId,
       )
+      ->Utils.unwrapResultExn
+
+    let chainFetcher = chainFetcher->updateChainFetcherCurrentBlockHeight(~currentBlockHeight)
+
+    let firstEventBlockNumber = switch parsedQueueItems[0] {
+    | Some(item) if chainFetcher.firstEventBlockNumber->Option.isNone => item.blockNumber->Some
+    | _ => chainFetcher.firstEventBlockNumber
     }
-    true
+
+    let hasArbQueueEvents =
+      state.chainManager.arbitraryEventPriorityQueue
+      ->ChainManager.getFirstArbitraryEventsItemForChain(~chain)
+      ->Option.isSome //TODO this is more expensive than it needs to be
+    let queueSize = updatedFetchState->FetchState.queueSize
+    let hasNoMoreEventsToProcess = !hasArbQueueEvents && queueSize == 0
+
+    let latestProcessedBlock = if hasNoMoreEventsToProcess {
+      updatedFetchState->FetchState.getLatestFullyFetchedBlock->Some
+    } else {
+      chainFetcher.latestProcessedBlock
+    }
+
+    let isFetchingAtHead = if currentBlockHeight <= heighestQueriedBlockNumber {
+      if !chainFetcher.isFetchingAtHead {
+        chainFetcher.logger->Logging.childInfo(
+          "All events have been fetched, they should finish processing the handlers soon.",
+        )
+      }
+      true
+    } else {
+      chainFetcher.isFetchingAtHead
+    }
+
+    let updatedChainFetcher = {
+      ...chainFetcher,
+      chainWorker: worker,
+      fetchState: updatedFetchState,
+      isFetchingBatch: false,
+      firstEventBlockNumber,
+      latestProcessedBlock,
+      isFetchingAtHead,
+      numBatchesFetched: chainFetcher.numBatchesFetched + 1,
+    }
+
+    let chainManager = {
+      ...state.chainManager,
+      chainFetchers: state.chainManager.chainFetchers->ChainMap.set(chain, updatedChainFetcher),
+    }->ChainManager.addLastBlockScannedData(
+      ~chain,
+      ~lastBlockScannedData,
+      ~currentHeight=currentBlockHeight,
+    )
+
+    let nextState = {
+      ...state,
+      chainManager,
+    }
+
+    Prometheus.setFetchedEventsUntilHeight(~blockNumber=response.heighestQueriedBlockNumber, ~chain)
+
+    (nextState, [UpdateChainMetaData, ProcessEventBatch, NextQuery(Chain(chain))])
   } else {
-    chainFetcher.isFetchingAtHead
+    (state, [Rollback(chain)])
   }
-
-  let updatedChainFetcher = {
-    ...chainFetcher,
-    chainWorker: worker,
-    fetchState: updatedFetchState,
-    isFetchingBatch: false,
-    firstEventBlockNumber,
-    latestProcessedBlock,
-    isFetchingAtHead,
-    numBatchesFetched: chainFetcher.numBatchesFetched + 1,
-  }
-
-  let chainManager = {
-    ...state.chainManager,
-    chainFetchers: state.chainManager.chainFetchers->ChainMap.set(chain, updatedChainFetcher),
-  }
-
-  let nextState = {
-    ...state,
-    chainManager,
-  }
-
-  Prometheus.setFetchedEventsUntilHeight(~blockNumber=response.heighestQueriedBlockNumber, ~chain)
-
-  (nextState, [UpdateChainMetaData, ProcessEventBatch, NextQuery(Chain(chain))])
 }
 
 let updateChainFetcher = (chainFetcherUpdate, ~state, ~chain) => {
@@ -394,6 +417,7 @@ let actionReducer = (state: t, action: action) => {
   | ErrorExit(errHandler) =>
     errHandler->ErrorHandling.log
     errHandler->ErrorHandling.raiseExn
+  | SetRollbackState(rollbackState) => ({...state, rollbackState}, [])
   }
 }
 
@@ -403,7 +427,8 @@ let checkAndFetchForChain = (chain, ~state, ~dispatchAction) => {
 
   if (
     !isFetchingBatch &&
-    fetchState->FetchState.isReadyForNextQuery(~maxQueueSize=state.maxPerChainQueueSize)
+    fetchState->FetchState.isReadyForNextQuery(~maxQueueSize=state.maxPerChainQueueSize) &&
+    !isRollingBack(state)
   ) {
     let (nextQuery, nextStateIfChangeRequired) =
       fetchState->FetchState.getNextQuery(~currentBlockHeight)->Utils.unwrapResultExn
@@ -479,7 +504,7 @@ let taskReducer = (state: t, task: task, ~dispatchAction) => {
       state.chainManager.chainFetchers->ChainMap.keys->Array.forEach(fetchForChain)
     }
   | ProcessEventBatch =>
-    if !state.currentlyProcessingBatch {
+    if !state.currentlyProcessingBatch && !isRollingBack(state) {
       switch state.chainManager->ChainManager.createBatch(~maxBatchSize=state.maxBatchSize) {
       | Some({batch, fetchStatesMap, arbitraryEventQueue}) =>
         dispatchAction(SetCurrentlyProcessing(true))
@@ -520,6 +545,55 @@ let taskReducer = (state: t, task: task, ~dispatchAction) => {
         ->ignore
       | None => dispatchAction(SetSyncedChains) //Known that there are no items available on the queue so safely call this action
       }
+    }
+  | Rollback(chain) =>
+    dispatchAction(SetRollbackState(RollingBack(chain)))
+
+    //Wait for current batch to finish processing
+    if !state.currentlyProcessingBatch {
+      let fn = async () => {
+        let chainFetcher = state.chainManager.chainFetchers->ChainMap.get(chain)
+        //Get rollback block and timestamp
+        let reorgChainRolledBackLastBlockData =
+          await chainFetcher->ChainFetcher.rollbackLastBlockHashesToReorgLocation
+
+        let {blockNumber, blockTimestamp} =
+          reorgChainRolledBackLastBlockData->ChainFetcher.getLastScannedBlockData
+
+        let chainFetchers = state.chainManager.chainFetchers->ChainMap.mapWithKey((cfChain, cf) => {
+          let rolledBackLastBlockData = if cfChain == chain {
+            reorgChainRolledBackLastBlockData
+          } else {
+            cf.lastBlockScannedHashes->ReorgDetection.LastBlockScannedHashes.rollBackToBlockTimestampLte(
+              ~blockTimestamp,
+            )
+          }
+
+          cf->ChainFetcher.rollbackToLastBlockHashes(~rolledBackLastBlockData)
+        })
+
+        let chainManager = {
+          ...state.chainManager,
+          chainFetchers,
+        }
+
+        let inMemoryStore = await IO.RollBack.rollBack(
+          ~chainId=chain->ChainMap.Chain.toChainId,
+          ~blockTimestamp,
+          ~blockNumber,
+          ~logIndex=0,
+        )
+
+        dispatchAction(SetRollbackState(RollbackState(inMemoryStore, chainManager)))
+      }
+
+      fn()->ignore
+
+      //Get each chains new latestBlockTimestamp fetched plus filters
+
+      //Set new fetch states with flushed queues
+
+      //
     }
   }
 }

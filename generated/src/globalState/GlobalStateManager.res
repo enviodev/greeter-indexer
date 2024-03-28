@@ -6,6 +6,7 @@ module type State = {
 
   let taskReducer: (t, task, ~dispatchAction: action => unit) => unit
   let actionReducer: (t, action) => (t, array<task>)
+  let isRollingBack: t => bool
 }
 
 module MakeManager = (S: State) => {
