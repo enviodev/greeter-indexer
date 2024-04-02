@@ -1,8 +1,7 @@
 open Belt
 
 type chain = ChainMap.Chain.t
-type rollbackState =
-  NoRollback | RollingBack(chain) | RollbackState(IO.InMemoryStore.t, ChainManager.t)
+type rollbackState = NoRollback | RollingBack(chain) | RollbackState(IO.InMemoryStore.t)
 type t = {
   chainManager: ChainManager.t,
   currentlyProcessingBatch: bool,
@@ -10,7 +9,14 @@ type t = {
   maxBatchSize: int,
   maxPerChainQueueSize: int,
   indexerStartTime: Js.Date.t,
+  //Initialized as 0, increments, when rollbacks occur to invalidate
+  //responses based on the wrong stateId
+  id: int,
 }
+
+let getId = self => self.id
+let incrementId = self => {...self, id: self.id + 1}
+let setRollingBack = (self, chain) => {...self, rollbackState: RollingBack(chain)}
 
 let isRollingBack = state =>
   switch state.rollbackState {
@@ -34,14 +40,15 @@ type action =
   | UpdateQueues(ChainMap.t<FetchState.t>, arbitraryEventQueue)
   | SetSyncedChains
   | ErrorExit(ErrorHandling.t)
-  | SetRollbackState(rollbackState)
+  | SetRollbackState(IO.InMemoryStore.t, ChainManager.t)
+  | ResetRollbackState
 
 type queryChain = CheckAllChains | Chain(chain)
 type task =
   | NextQuery(queryChain)
   | ProcessEventBatch
   | UpdateChainMetaData
-  | Rollback(chain)
+  | Rollback
 
 let updateChainFetcherCurrentBlockHeight = (chainFetcher: ChainFetcher.t, ~currentBlockHeight) => {
   if currentBlockHeight > chainFetcher.currentBlockHeight {
@@ -177,6 +184,7 @@ let updateLatestProcessedBlocks = (
   {
     ...state,
     chainManager: chainManager->checkAndSetSyncedChains,
+    currentlyProcessingBatch: false,
   }
 }
 
@@ -280,7 +288,7 @@ let handleBlockRangeResponse = (state, ~chain, ~response: blockRangeFetchRespons
 
     (nextState, [UpdateChainMetaData, ProcessEventBatch, NextQuery(Chain(chain))])
   } else {
-    (state, [Rollback(chain)])
+    (state->incrementId->setRollingBack(chain), [Rollback])
   }
 }
 
@@ -358,7 +366,6 @@ let actionReducer = (state: t, action: action) => {
       {
         ...state,
         chainManager: updatedChainManager,
-        currentlyProcessingBatch: false,
       }
     })
 
@@ -374,9 +381,10 @@ let actionReducer = (state: t, action: action) => {
     let nextState = updateLatestProcessedBlocks(~state=nextState, ~latestProcessedBlocks=val)
     (nextState, nextTasks)
 
-  | EventBatchProcessed({val, dynamicContractRegistrations: None}) =>
-    let nextState = updateLatestProcessedBlocks(~state, ~latestProcessedBlocks=val)
-    ({...nextState, currentlyProcessingBatch: false}, [UpdateChainMetaData, ProcessEventBatch])
+  | EventBatchProcessed({val, dynamicContractRegistrations: None}) => (
+      updateLatestProcessedBlocks(~state, ~latestProcessedBlocks=val),
+      [UpdateChainMetaData, ProcessEventBatch],
+    )
   | SetCurrentlyProcessing(currentlyProcessingBatch) => ({...state, currentlyProcessingBatch}, [])
   | SetCurrentlyFetchingBatch(chain, isFetchingBatch) =>
     updateChainFetcher(
@@ -417,9 +425,19 @@ let actionReducer = (state: t, action: action) => {
   | ErrorExit(errHandler) =>
     errHandler->ErrorHandling.log
     errHandler->ErrorHandling.raiseExn
-  | SetRollbackState(rollbackState) => ({...state, rollbackState}, [])
+  | SetRollbackState(inMemoryStore, chainManager) => (
+      {...state, rollbackState: RollbackState(inMemoryStore), chainManager},
+      [NextQuery(CheckAllChains), ProcessEventBatch],
+    )
+  | ResetRollbackState => ({...state, rollbackState: NoRollback}, [])
   }
 }
+
+let invalidatedActionReducer = (state: t, action: action) =>
+  switch action {
+  | EventBatchProcessed(_) => ({...state, currentlyProcessingBatch: false}, [Rollback])
+  | _ => (state, [])
+  }
 
 let checkAndFetchForChain = (chain, ~state, ~dispatchAction) => {
   let {fetchState, chainWorker, logger, currentBlockHeight, isFetchingBatch} =
@@ -518,22 +536,36 @@ let taskReducer = (state: t, task: task, ~dispatchAction) => {
             ~contractName,
           )
         }
+
         let latestProcessedBlocks = EventProcessing.EventsProcessed.makeFromChainManager(
           state.chainManager,
         )
-        let inMemoryStore = IO.InMemoryStore.make()
+
+        //In the case of a rollback, use the provided in memory store
+        //With rolled back values
+        let rollbackInMemStore = switch state.rollbackState {
+        | RollbackState(inMemoryStore) => Some(inMemoryStore)
+        | NoRollback | RollingBack(_) => None
+        }
+
+        let inMemoryStore = rollbackInMemStore->Option.getWithDefault(IO.InMemoryStore.make())
         EventProcessing.processEventBatch(
           ~eventBatch=batch,
           ~inMemoryStore,
           ~checkContractIsRegistered,
           ~latestProcessedBlocks,
         )
-        ->Promise.thenResolve(res =>
+        ->Promise.thenResolve(res => {
+          if rollbackInMemStore->Option.isSome {
+            //if the batch was executed with a rollback inMemoryStore
+            //reset the rollback state once the batch has been processed
+            dispatchAction(ResetRollbackState)
+          }
           switch res {
           | Ok(loadRes) => dispatchAction(EventBatchProcessed(loadRes))
           | Error(errHandler) => dispatchAction(ErrorExit(errHandler))
           }
-        )
+        })
         ->Promise.catch(exn => {
           //All casese should be handled/caught before this with better user messaging.
           //This is just a safety in case something unexpected happens
@@ -546,13 +578,12 @@ let taskReducer = (state: t, task: task, ~dispatchAction) => {
       | None => dispatchAction(SetSyncedChains) //Known that there are no items available on the queue so safely call this action
       }
     }
-  | Rollback(chain) =>
-    dispatchAction(SetRollbackState(RollingBack(chain)))
-
+  | Rollback =>
     //Wait for current batch to finish processing
-    if !state.currentlyProcessingBatch {
+    switch state {
+    | {currentlyProcessingBatch: false, rollbackState: RollingBack(rollbackChain)} =>
       let fn = async () => {
-        let chainFetcher = state.chainManager.chainFetchers->ChainMap.get(chain)
+        let chainFetcher = state.chainManager.chainFetchers->ChainMap.get(rollbackChain)
         //Get rollback block and timestamp
         let reorgChainRolledBackLastBlockData =
           await chainFetcher->ChainFetcher.rollbackLastBlockHashesToReorgLocation
@@ -560,15 +591,20 @@ let taskReducer = (state: t, task: task, ~dispatchAction) => {
         let {blockNumber, blockTimestamp} =
           reorgChainRolledBackLastBlockData->ChainFetcher.getLastScannedBlockData
 
-        let chainFetchers = state.chainManager.chainFetchers->ChainMap.mapWithKey((cfChain, cf) => {
-          let rolledBackLastBlockData = if cfChain == chain {
+        let chainFetchers = state.chainManager.chainFetchers->ChainMap.mapWithKey((chain, cf) => {
+          let rolledBackLastBlockData = if chain == rollbackChain {
+            //For the chain fetcher of the chain where a  reorg occured, use the the
+            //rolledBackLastBlockData already computed
             reorgChainRolledBackLastBlockData
           } else {
+            //For all other chains, rollback to where a blockTimestamp is less than or equal to the block timestamp
+            //where the reorg chain is rolling back to
             cf.lastBlockScannedHashes->ReorgDetection.LastBlockScannedHashes.rollBackToBlockTimestampLte(
               ~blockTimestamp,
             )
           }
 
+          //Roll back chain fetcher with the given rolledBackLastBlockData
           cf->ChainFetcher.rollbackToLastBlockHashes(~rolledBackLastBlockData)
         })
 
@@ -577,23 +613,20 @@ let taskReducer = (state: t, task: task, ~dispatchAction) => {
           chainFetchers,
         }
 
+        //Construct a rolledback in Memory store
         let inMemoryStore = await IO.RollBack.rollBack(
-          ~chainId=chain->ChainMap.Chain.toChainId,
+          ~chainId=rollbackChain->ChainMap.Chain.toChainId,
           ~blockTimestamp,
           ~blockNumber,
           ~logIndex=0,
         )
 
-        dispatchAction(SetRollbackState(RollbackState(inMemoryStore, chainManager)))
+        dispatchAction(SetRollbackState(inMemoryStore, chainManager))
       }
 
       fn()->ignore
 
-      //Get each chains new latestBlockTimestamp fetched plus filters
-
-      //Set new fetch states with flushed queues
-
-      //
+    | _ => () //wait for batch to finish processing
     }
   }
 }
