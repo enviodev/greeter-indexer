@@ -221,6 +221,41 @@ type nextQuery = {
   currentLatestBlockTimestamp: int,
 }
 
+let getQueryLogger = (
+  {fetchStateRegisterId, fromBlock, toBlock, contractAddressMapping}: nextQuery,
+  ~logger,
+) => {
+  let fetchStateRegister = switch fetchStateRegisterId {
+  | Root => "root"
+  | DynamicContract({blockNumber, logIndex}) =>
+    `dynamic-${blockNumber->Int.toString}-${logIndex->Int.toString}`
+  }
+  let addressesAll = contractAddressMapping->ContractAddressingMap.getAllAddresses
+  let (displayAddr, restCount) = addressesAll->Array.reduce(([], 0), (
+    (currentDisplay, restCount),
+    addr,
+  ) => {
+    if currentDisplay->Array.length < 3 {
+      (Array.concat(currentDisplay, [addr->Ethers.ethAddressToString]), restCount)
+    } else {
+      (currentDisplay, restCount + 1)
+    }
+  })
+
+  let addresses = if restCount > 0 {
+    displayAddr->Array.concat([`... and ${restCount->Int.toString} more`])
+  } else {
+    displayAddr
+  }
+  let params = {
+    "fromBlock": fromBlock,
+    "toBlock": toBlock,
+    "addresses": addresses,
+    "fetchStateRegister": fetchStateRegister,
+  }
+  Logging.createChildFrom(~logger, ~params)
+}
+
 /**
 Constructs `nextQuery` from a given node
 */
@@ -524,7 +559,12 @@ the given name and address
 */
 let checkContainsRegisteredContractAddress = (self: t, ~contractName, ~contractAddress) => {
   let allAddr = self->getAllAddressesForContract(~contractName)
-  allAddr->Set.String.has(contractAddress->Ethers.ethAddressToString)
+  allAddr->Set.String.has(
+    contractAddress
+    ->//run formatEthAddress to be sure that the address is checksummed
+    Ethers.formatEthAddress
+    ->Ethers.ethAddressToString,
+  )
 }
 
 /**

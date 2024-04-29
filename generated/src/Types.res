@@ -37,10 +37,10 @@ type dynamicContractRegistryEntity = {
 
 @spice @genType.as("UserEntity")
 type userEntity = {
-  numberOfGreetings: int,
-  latestGreeting: string,
-  id: id,
   greetings: array<string>,
+  id: id,
+  latestGreeting: string,
+  numberOfGreetings: int,
 }
 
 type entity = UserEntity(userEntity)

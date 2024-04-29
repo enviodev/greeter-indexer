@@ -1,11 +1,4 @@
 exception UndefinedEvent(string)
-
-let getVal = (_typ, _fn) =>
-  %raw(`
-    Array.isArray(_typ) ?
-       _typ.map(inner => getVal(inner, _fn)) : _typ.val
-`)
-
 let eventStringToEvent = (eventName: string, contractName: string): Types.eventName => {
   switch (eventName, contractName) {
   | ("NewGreeting", "Greeter") => Greeter_NewGreeting
@@ -93,20 +86,16 @@ module Greeter = {
     Types.GreeterContract_NewGreeting(newGreetingLog)
   }
 
-  type decodedNewGreetingBody = {
-    @as("0") user: HyperSyncClient.Decoder.decodedSolType<Ethers.ethAddress>,
-    @as("1") greeting: HyperSyncClient.Decoder.decodedSolType<string>,
-  }
-
   let convertNewGreetingDecodedEventParams = (
-    decodedEvent: HyperSyncClient.Decoder.decodedEvent<'a>,
+    decodedEvent: HyperSyncClient.Decoder.decodedEvent,
   ): Types.GreeterContract.NewGreetingEvent.eventArgs => {
-    let {user, greeting}: decodedNewGreetingBody = decodedEvent.body->Obj.magic
-
-    {
-      user: user->getVal(getVal),
-      greeting: greeting->getVal(getVal),
-    }
+    open Belt
+    let fields = ["user", "greeting"]
+    let values =
+      Array.concat(decodedEvent.indexed, decodedEvent.body)->Array.map(
+        HyperSyncClient.Decoder.toUnderlying,
+      )
+    Array.zip(fields, values)->Js.Dict.fromArray->Obj.magic
   }
   let convertClearGreetingViemDecodedEvent: Viem.decodedEvent<'a> => Viem.decodedEvent<
     Types.GreeterContract.ClearGreetingEvent.eventArgs,
@@ -183,18 +172,16 @@ module Greeter = {
     Types.GreeterContract_ClearGreeting(clearGreetingLog)
   }
 
-  type decodedClearGreetingBody = {
-    @as("0") user: HyperSyncClient.Decoder.decodedSolType<Ethers.ethAddress>,
-  }
-
   let convertClearGreetingDecodedEventParams = (
-    decodedEvent: HyperSyncClient.Decoder.decodedEvent<'a>,
+    decodedEvent: HyperSyncClient.Decoder.decodedEvent,
   ): Types.GreeterContract.ClearGreetingEvent.eventArgs => {
-    let {user}: decodedClearGreetingBody = decodedEvent.body->Obj.magic
-
-    {
-      user: user->getVal(getVal),
-    }
+    open Belt
+    let fields = ["user"]
+    let values =
+      Array.concat(decodedEvent.indexed, decodedEvent.body)->Array.map(
+        HyperSyncClient.Decoder.toUnderlying,
+      )
+    Array.zip(fields, values)->Js.Dict.fromArray->Obj.magic
   }
 }
 
@@ -258,7 +245,7 @@ let makeEventLog = (
 }
 
 let convertDecodedEvent = (
-  event: HyperSyncClient.Decoder.decodedEvent<'t>,
+  event: HyperSyncClient.Decoder.decodedEvent,
   ~contractInterfaceManager,
   ~log: Ethers.log,
   ~blockTimestamp,

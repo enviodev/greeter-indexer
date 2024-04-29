@@ -102,7 +102,7 @@ module GreeterContract = {
         },
       }
 
-      //handler context must be defined as a getter functoin so that it can construct the context
+      //handler context must be defined as a getter function so that it can construct the context
       //without stale values whenever it is used
       let getHandlerContextSync: unit => handlerContext = () => {
         {
@@ -268,7 +268,7 @@ module GreeterContract = {
         },
       }
 
-      //handler context must be defined as a getter functoin so that it can construct the context
+      //handler context must be defined as a getter function so that it can construct the context
       //without stale values whenever it is used
       let getHandlerContextSync: unit => handlerContext = () => {
         {

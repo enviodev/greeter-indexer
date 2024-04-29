@@ -13,13 +13,39 @@ module ChainMetadata = {
     @as("chain_id") chainId: int,
     @as("block_height") blockHeight: int,
     @as("start_block") startBlock: int,
+    @as("first_event_block_number") firstEventBlockNumber: option<int>,
+    @as("latest_processed_block") latestProcessedBlock: option<int>,
+    @as("num_events_processed") numEventsProcessed: option<int>,
+    @as("is_hyper_sync") isHyperSync: bool,
+    @as("num_batches_fetched") numBatchesFetched: int,
+    @as("latest_fetched_block_number") latestFetchedBlockNumber: int,
+    @as("timestamp_caught_up_to_head") timeStampCaughtUpToHead: option<Js.Date.t>,
   }
 
   @module("./DbFunctionsImplementation.js")
-  external setChainMetadata: (Postgres.sql, chainMetadata) => promise<unit> = "setChainMetadata"
+  external setChainMetadataBlockHeight: (Postgres.sql, chainMetadata) => promise<unit> =
+    "setChainMetadataBlockHeight"
+  @module("./DbFunctionsImplementation.js")
+  external batchSetChainMetadata: (Postgres.sql, array<chainMetadata>) => promise<unit> =
+    "batchSetChainMetadata"
 
-  let setChainMetadataRow = (~chainId, ~startBlock, ~blockHeight) => {
-    sql->setChainMetadata({chainId, startBlock, blockHeight})
+  @module("./DbFunctionsImplementation.js")
+  external readLatestChainMetadataState: (
+    Postgres.sql,
+    ~chainId: int,
+  ) => promise<array<chainMetadata>> = "readLatestChainMetadataState"
+
+  let setChainMetadataBlockHeightRow = (~chainMetadata: chainMetadata) => {
+    sql->setChainMetadataBlockHeight(chainMetadata)
+  }
+
+  let batchSetChainMetadataRow = (~chainMetadataArray: array<chainMetadata>) => {
+    sql->batchSetChainMetadata(chainMetadataArray)
+  }
+
+  let getLatestChainMetadataState = async (~chainId) => {
+    let arr = await sql->readLatestChainMetadataState(~chainId)
+    arr->Belt.Array.get(0)
   }
 }
 

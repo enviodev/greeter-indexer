@@ -63,8 +63,24 @@ let getLogLevelConfig = (~name, ~default): Pino.logLevel =>
     (),
   )
 
-let configIsUnorderedMultichainMode = false
+let configShouldUseHypersyncClientDecoder = true
 
+/**
+Determines whether to use HypersyncClient Decoder or Viem for parsing events
+Default is hypersync client decoder, configurable in config with:
+```yaml
+event_decoder: "viem" || "hypersync-client"
+```
+*/
+let shouldUseHypersyncClientDecoder =
+  envSafe->EnvSafe.get(
+    ~name="USE_HYPERSYNC_CLIENT_DECODER",
+    ~struct=S.bool(),
+    ~devFallback=configShouldUseHypersyncClientDecoder,
+    (),
+  )
+
+let configIsUnorderedMultichainMode = false
 /**
 Used for backwards compatability
 */
@@ -88,12 +104,14 @@ let logFilePath =
 let userLogLevel = getLogLevelConfig(~name="LOG_LEVEL", ~default=#info)
 let defaultFileLogLevel = getLogLevelConfig(~name="FILE_LOG_LEVEL", ~default=#trace)
 
-type logStrategyType = EcsFile | EcsConsole | FileOnly | ConsoleRaw | ConsolePretty | Both
+type logStrategyType =
+  EcsFile | EcsConsole | EcsConsoleMultistream | FileOnly | ConsoleRaw | ConsolePretty | Both
 let logStrategy = envSafe->EnvSafe.get(
   ~name="LOG_STRATEGY",
   ~struct=S.union([
     S.literalVariant(String("ecs-file"), EcsFile),
     S.literalVariant(String("ecs-console"), EcsConsole),
+    S.literalVariant(String("ecs-console-multistream"), EcsConsoleMultistream),
     S.literalVariant(String("file-only"), FileOnly),
     S.literalVariant(String("console-raw"), ConsoleRaw),
     S.literalVariant(String("console-pretty"), ConsolePretty),
@@ -225,6 +243,8 @@ let config: chainConfigs = ChainMap.make(getConfig)
 
 let metricsPort =
   envSafe->EnvSafe.get(~name="METRICS_PORT", ~struct=S.int()->S.Int.port(), ~devFallback=9898, ())
+
+let tuiOffEnvVar = envSafe->EnvSafe.get(~name="TUI_OFF", ~struct=S.bool(), ~devFallback=false, ())
 
 // You need to close the envSafe after you're done with it so that it immediately tells you about your  misconfigured environment on startup.
 envSafe->EnvSafe.close()

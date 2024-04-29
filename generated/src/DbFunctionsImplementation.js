@@ -27,7 +27,44 @@ module.exports.batchSetEventSyncState = (sql, entityDataArray) => {
     `;
 };
 
-module.exports.setChainMetadata = (sql, entityDataArray) => {
+module.exports.readLatestChainMetadataState = (sql, chainId) => sql`
+  SELECT *
+  FROM public.chain_metadata
+  WHERE chain_id = ${chainId}`;
+
+module.exports.batchSetChainMetadata = (sql, entityDataArray) => {
+  return (sql`
+    INSERT INTO public.chain_metadata
+  ${sql(
+    entityDataArray,
+    "chain_id",
+    "start_block", // this is left out of the on conflict below as it only needs to be set once
+    "block_height",
+    "first_event_block_number",
+    "latest_processed_block",
+    "num_events_processed",
+    "is_hyper_sync", // this is left out of the on conflict below as it only needs to be set once
+    "num_batches_fetched",
+    "latest_fetched_block_number",
+    "timestamp_caught_up_to_head"
+  )}
+  ON CONFLICT(chain_id) DO UPDATE
+  SET
+  "chain_id" = EXCLUDED."chain_id",
+  "first_event_block_number" = EXCLUDED."first_event_block_number",
+  "latest_processed_block" = EXCLUDED."latest_processed_block",
+  "num_events_processed" = EXCLUDED."num_events_processed",
+  "num_batches_fetched" = EXCLUDED."num_batches_fetched",
+  "latest_fetched_block_number" = EXCLUDED."latest_fetched_block_number",
+  "timestamp_caught_up_to_head" = EXCLUDED."timestamp_caught_up_to_head",
+  "block_height" = EXCLUDED."block_height";`).then(res => {
+
+  }).catch(err => {
+    console.log("errored", err)
+  });
+};
+
+module.exports.setChainMetadataBlockHeight = (sql, entityDataArray) => {
   return (sql`
     INSERT INTO public.chain_metadata
   ${sql(
@@ -40,7 +77,7 @@ module.exports.setChainMetadata = (sql, entityDataArray) => {
   SET
   "chain_id" = EXCLUDED."chain_id",
   "block_height" = EXCLUDED."block_height";`).then(res => {
-    
+
   }).catch(err => {
     console.log("errored", err)
   });
@@ -220,10 +257,10 @@ module.exports.batchDeleteDynamicContractRegistry = (sql, entityIdArray) => sql`
 
 module.exports.readUserEntities = (sql, entityIdArray) => sql`
 SELECT 
-"numberOfGreetings",
-"latestGreeting",
+"greetings",
 "id",
-"greetings"
+"latestGreeting",
+"numberOfGreetings"
 FROM "public"."User"
 WHERE id IN ${sql(entityIdArray)};`;
 
@@ -231,17 +268,17 @@ const batchSetUserCore = (sql, entityDataArray) => {
   return sql`
     INSERT INTO "public"."User"
 ${sql(entityDataArray,
-    "numberOfGreetings",
-    "latestGreeting",
+    "greetings",
     "id",
-    "greetings"
+    "latestGreeting",
+    "numberOfGreetings"
   )}
   ON CONFLICT(id) DO UPDATE
   SET
-  "numberOfGreetings" = EXCLUDED."numberOfGreetings",
-  "latestGreeting" = EXCLUDED."latestGreeting",
+  "greetings" = EXCLUDED."greetings",
   "id" = EXCLUDED."id",
-  "greetings" = EXCLUDED."greetings"
+  "latestGreeting" = EXCLUDED."latestGreeting",
+  "numberOfGreetings" = EXCLUDED."numberOfGreetings"
   `;
 }
 

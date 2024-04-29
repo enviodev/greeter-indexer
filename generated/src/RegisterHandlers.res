@@ -2,11 +2,11 @@
 
 let registerContractHandlers = (
   ~contractName,
-  ~handlerPathRelativeToGeneratedSrc,
+  ~handlerPathRelativeToRoot,
   ~handlerPathRelativeToConfig,
 ) => {
   try {
-    require(handlerPathRelativeToGeneratedSrc)
+    require("handlers/" ++ handlerPathRelativeToRoot)
   } catch {
   | exn =>
     let params = {
@@ -25,7 +25,7 @@ let registerContractHandlers = (
 let registerAllHandlers = () => {
   registerContractHandlers(
     ~contractName="Greeter",
-    ~handlerPathRelativeToGeneratedSrc="../../src/EventHandlers.ts",
+    ~handlerPathRelativeToRoot="src/EventHandlers.ts",
     ~handlerPathRelativeToConfig="src/EventHandlers.ts",
   )
 }

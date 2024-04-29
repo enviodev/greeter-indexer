@@ -28,6 +28,13 @@ module ChainMetadata = {
         chain_id INTEGER NOT NULL,
         start_block INTEGER NOT NULL,
         block_height INTEGER NOT NULL,
+        first_event_block_number INTEGER NULL,
+        latest_processed_block INTEGER NULL,
+        num_events_processed INTEGER NULL,
+        is_hyper_sync BOOL NOT NULL,
+        num_batches_fetched INTEGER NOT NULL,
+        latest_fetched_block_number INTEGER NOT NULL,
+        timestamp_caught_up_to_head TIMESTAMP WITH TIME ZONE NULL,
         PRIMARY KEY (chain_id)
       );
       `")
@@ -208,10 +215,14 @@ module EntityHistory = {
 
 module User = {
   let createUserTable: unit => promise<unit> = async () => {
-    await %raw("sql`
-      CREATE TABLE \"public\".\"User\" (\"numberOfGreetings\" integer NOT NULL,\"latestGreeting\" text NOT NULL,\"id\" text NOT NULL,\"greetings\" text[] NOT NULL, 
+    let _ = await %raw("sql`
+      CREATE TABLE \"public\".\"User\" (\"greetings\" text[] NOT NULL,\"id\" text NOT NULL,\"latestGreeting\" text NOT NULL,\"numberOfGreetings\" integer NOT NULL, 
         db_write_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
         PRIMARY KEY (\"id\"));`")
+
+    let _ = await %raw("sql`
+      CREATE INDEX IF NOT EXISTS \"User_id\" ON public.\"User\" (id);
+    `")
   }
 
   let createUserHistoryTable: unit => promise<unit> = async () => {
@@ -221,10 +232,10 @@ module User = {
         chain_id INTEGER NOT NULL,
         block_number INTEGER NOT NULL,
         log_index INTEGER NOT NULL,
-        \"numberOfGreetings\" integer NOT NULL,
-        \"latestGreeting\" text NOT NULL,
-        \"id\" text NOT NULL,
         \"greetings\" text[] NOT NULL,
+        \"id\" text NOT NULL,
+        \"latestGreeting\" text NOT NULL,
+        \"numberOfGreetings\" integer NOT NULL,
         db_write_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
         PRIMARY KEY (\"id\", chain_id, block_number, log_index));`")
   }
@@ -232,6 +243,16 @@ module User = {
   let deleteUserTable: unit => promise<unit> = async () => {
     // NOTE: we can refine the `IF EXISTS` part because this now prints to the terminal if the table doesn't exist (which isn't nice for the developer).
     await %raw("sql`DROP TABLE IF EXISTS \"public\".\"User\";`")
+  }
+}
+
+module DbIndexes = {
+  let createDerivedFromDbIndexes = async () => {
+    ()
+  }
+
+  let createCustomUserDefinedIndexes = async () => {
+    ()
   }
 }
 
@@ -273,7 +294,7 @@ let deleteAllTablesExceptRawEventsAndDynamicContractRegistry: unit => promise<un
 type t
 @module external process: t = "process"
 
-type exitCode = Success | Failure
+type exitCode = | @as(0) Success | @as(1) Failure
 @send external exit: (t, exitCode) => unit = "exit"
 
 // TODO: all the migration steps should run as a single transaction
@@ -314,6 +335,11 @@ let runUpMigrations = async (~shouldExit) => {
     exitCode := Failure
     Logging.errorWithExn(err, `EE802: Error creating User entity history table`)->Promise.resolve
   })
+
+  // TODO: catch errors here
+  await DbIndexes.createDerivedFromDbIndexes()
+  await DbIndexes.createCustomUserDefinedIndexes()
+
   await TrackTables.trackAllTables()->Promise.catch(err => {
     Logging.errorWithExn(err, `EE803: Error tracking tables`)->Promise.resolve
   })

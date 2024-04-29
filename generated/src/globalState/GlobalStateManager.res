@@ -9,17 +9,24 @@ module type State = {
 }
 
 module MakeManager = (S: State) => {
-  type t = {mutable state: S.t}
+  type t = {mutable state: S.t, stateUpdatedHook: option<S.t => unit>}
 
-  let make = (state: S.t) => {state: state}
+  let make = (~stateUpdatedHook: option<S.t => unit>=?, state: S.t) => {state, stateUpdatedHook}
 
   let rec dispatchAction = (self: t, action: S.action) => {
-    Js.Global.setTimeout(() => {
+    try {
       let (nextState, nextTasks) = S.actionReducer(self.state, action)
       self.state = nextState
-
+      switch self.stateUpdatedHook {
+      | Some(hook) => hook(nextState)
+      | None => ()
+      }
       nextTasks->Array.forEach(task => dispatchTask(self, task))
-    }, 0)->ignore
+    } catch {
+    | e =>
+      e->ErrorHandling.make(~msg="Indexer has failed with an unxpected error")->ErrorHandling.log
+      NodeJsLocal.process->NodeJsLocal.exitWithCode(Failure)
+    }
   }
   and dispatchTask = (self, task: S.task) => Js.Global.setTimeout(() => {
       S.taskReducer(self.state, task, ~dispatchAction=dispatchAction(self))
