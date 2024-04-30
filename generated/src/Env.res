@@ -120,24 +120,18 @@ module Hasura = {
 
 module Configurable = {
   let shouldUseHypersyncClientDecoder =
-    envSafe->EnvSafe.get(.
-      ~name="USE_HYPERSYNC_CLIENT_DECODER",
-      ~struct=S.option(S.bool)->S.Option.getOr(false),
-    )
+    envSafe->EnvSafe.get(. ~name="USE_HYPERSYNC_CLIENT_DECODER", ~struct=S.option(S.bool))
 
   /**
     Used for backwards compatability
   */
   let unstable__temp_unordered_head_mode = envSafe->EnvSafe.get(.
     ~name="UNSTABLE__TEMP_UNORDERED_HEAD_MODE",
-    ~struct=S.option(S.bool)->S.Option.getOr(false),
+    ~struct=S.option(S.bool),
   )
 
   let isUnorderedMultichainMode =
-    envSafe->EnvSafe.get(.
-      ~name="UNORDERED_MULTICHAIN_MODE",
-      ~struct=S.option(S.bool)->S.Option.getOr(false),
-    )
+    envSafe->EnvSafe.get(. ~name="UNORDERED_MULTICHAIN_MODE", ~struct=S.option(S.bool))
 
   module SyncConfig = {
     let initialBlockInterval = EnvUtils.getOptIntEnvVar(

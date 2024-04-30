@@ -51,14 +51,18 @@ event_decoder: "viem" || "hypersync-client"
 ```
 */
 let shouldUseHypersyncClientDecoder =
-  Env.Configurable.shouldUseHypersyncClientDecoder || configShouldUseHypersyncClientDecoder
+  Env.Configurable.shouldUseHypersyncClientDecoder->Belt.Option.getWithDefault(
+    configShouldUseHypersyncClientDecoder,
+  )
 
 let configIsUnorderedMultichainMode = false
 
 let isUnorderedMultichainMode =
-  Env.Configurable.isUnorderedMultichainMode ||
-  Env.Configurable.unstable__temp_unordered_head_mode ||
-  configIsUnorderedMultichainMode
+  Env.Configurable.isUnorderedMultichainMode->Belt.Option.getWithDefault(
+    Env.Configurable.unstable__temp_unordered_head_mode->Belt.Option.getWithDefault(
+      configIsUnorderedMultichainMode,
+    ),
+  )
 
 let db: Postgres.poolConfig = {
   host: Env.Db.host,
