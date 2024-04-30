@@ -35,7 +35,7 @@ let app = expressCjs()
 
 app->use(jsonMiddleware())
 
-let port = Config.metricsPort
+let port = Env.metricsPort
 
 app->get("/healthz", (_req, res) => {
   // this is the machine readable port used in kubernetes to check the health of this service.
@@ -80,20 +80,20 @@ let makeAppState = (globalState: GlobalState.t): EnvioInkApp.appState => {
       | {
           firstEventBlockNumber: Some(firstEventBlockNumber),
           latestProcessedBlock,
-          timestampCaughtUpToHead: Some(timestampCaughtUpToHead),
+          timestampCaughtUpToHeadOrEndblock: Some(timestampCaughtUpToHeadOrEndblock),
         } =>
         let latestProcessedBlock =
           latestProcessedBlock->Option.getWithDefault(firstEventBlockNumber)
         Synced({
           firstEventBlockNumber,
           latestProcessedBlock,
-          timestampCaughtUpToHead,
+          timestampCaughtUpToHeadOrEndblock,
           numEventsProcessed,
         })
       | {
           firstEventBlockNumber: Some(firstEventBlockNumber),
           latestProcessedBlock,
-          timestampCaughtUpToHead: None,
+          timestampCaughtUpToHeadOrEndblock: None,
         } =>
         let latestProcessedBlock =
           latestProcessedBlock->Option.getWithDefault(firstEventBlockNumber)
@@ -112,6 +112,7 @@ let makeAppState = (globalState: GlobalState.t): EnvioInkApp.appState => {
           latestFetchedBlockNumber,
           numBatchesFetched,
           chainId: cf.chainConfig.chain->ChainMap.Chain.toChainId,
+          endBlock: cf.chainConfig.endBlock,
           isHyperSync: switch cf.chainConfig.syncSource {
           | HyperSync(_) => true
           | Rpc(_) => false
@@ -126,7 +127,7 @@ let main = async () => {
   try {
     RegisterHandlers.registerAllHandlers()
     let mainArgs: mainArgs = process->argv->Yargs.hideBin->Yargs.yargs->Yargs.argv
-    let shouldUseTui = !(mainArgs.tuiOff->Belt.Option.getWithDefault(Config.tuiOffEnvVar))
+    let shouldUseTui = !(mainArgs.tuiOff->Belt.Option.getWithDefault(Env.tuiOffEnvVar))
     // let shouldSyncFromRawEvents = mainArgs.syncFromRawEvents->Belt.Option.getWithDefault(false)
 
     let chainManager = await ChainManager.makeFromDbState(~configs=Config.config)
@@ -134,7 +135,10 @@ let main = async () => {
       currentlyProcessingBatch: false,
       chainManager,
       maxBatchSize: Env.maxProcessBatchSize,
-      maxPerChainQueueSize: Env.maxPerChainQueueSize,
+      maxPerChainQueueSize: {
+        let numChains = Config.config->ChainMap.size
+        Env.maxEventFetchedQueueSize / numChains
+      },
       indexerStartTime: Js.Date.make(),
     }
     let stateUpdatedHook = if shouldUseTui {
