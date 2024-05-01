@@ -10,15 +10,18 @@ type queryError =
 let executeFetchRequest = async (
   ~endpoint,
   ~method: Fetch.method,
-  ~bodyAndEncoder: option<('a, 'a => Js.Json.t)>=?,
+  ~bodyAndSchema: option<('body, S.t<'body>)>=?,
   ~responseSchema: S.t<'data>,
   (),
 ): result<'data, queryError> => {
   try {
     open Fetch
 
-    let body = bodyAndEncoder->Belt.Option.map(((body, encoder)) => {
-      body->encoder->Js.Json.stringify->Body.string
+    let body = bodyAndSchema->Belt.Option.map(((body, schema)) => {
+      switch body->S.serializeToJsonStringWith(. schema) {
+      | Ok(jsonString) => jsonString->Body.string
+      | Error(error) => error->S.Error.raise
+      }
     })
 
     let res =
