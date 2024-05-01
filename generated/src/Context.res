@@ -356,7 +356,6 @@ module GreeterContract = {
   }
 }
 
-@deriving(accessors)
 type eventAndContext =
   | GreeterContract_NewGreetingWithContext(
       Types.eventLog<Types.GreeterContract.NewGreetingEvent.eventArgs>,

@@ -376,14 +376,20 @@ let rec getReadEntities = (
           ~event,
           ~contextCreator=Context.GreeterContract.NewGreetingEvent.contextCreator,
           ~getLoader=Handlers.GreeterContract.NewGreeting.getLoader,
-          ~eventWithContextAccessor=Context.greeterContract_NewGreetingWithContext,
+          ~eventWithContextAccessor=(
+            event,
+            context,
+          ) => Context.GreeterContract_NewGreetingWithContext(event, context),
         )
       | GreeterContract_ClearGreeting(event) =>
         composer(
           ~event,
           ~contextCreator=Context.GreeterContract.ClearGreetingEvent.contextCreator,
           ~getLoader=Handlers.GreeterContract.ClearGreeting.getLoader,
-          ~eventWithContextAccessor=Context.greeterContract_ClearGreetingWithContext,
+          ~eventWithContextAccessor=(
+            event,
+            context,
+          ) => Context.GreeterContract_ClearGreetingWithContext(event, context),
         )
       }
 

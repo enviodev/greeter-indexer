@@ -274,7 +274,10 @@ module Greeter = {
     let processEvent = EventFunctions.makeSyncEventProcessor(
       ~contextCreator=Context.GreeterContract.NewGreetingEvent.contextCreator,
       ~getLoader=Handlers.GreeterContract.NewGreeting.getLoader,
-      ~eventWithContextAccessor=Context.greeterContract_NewGreetingWithContext,
+      ~eventWithContextAccessor=(event, context) => Context.GreeterContract_NewGreetingWithContext(
+        event,
+        context,
+      ),
       ~eventName=Types.Greeter_NewGreeting,
     )
 
@@ -282,7 +285,10 @@ module Greeter = {
     let processEventAsync = EventFunctions.makeAsyncEventProcessor(
       ~contextCreator=Context.GreeterContract.NewGreetingEvent.contextCreator,
       ~getLoader=Handlers.GreeterContract.NewGreeting.getLoader,
-      ~eventWithContextAccessor=Context.greeterContract_NewGreetingWithContext,
+      ~eventWithContextAccessor=(event, context) => Context.GreeterContract_NewGreetingWithContext(
+        event,
+        context,
+      ),
       ~eventName=Types.Greeter_NewGreeting,
     )
 
@@ -311,7 +317,10 @@ module Greeter = {
     let processEvent = EventFunctions.makeSyncEventProcessor(
       ~contextCreator=Context.GreeterContract.ClearGreetingEvent.contextCreator,
       ~getLoader=Handlers.GreeterContract.ClearGreeting.getLoader,
-      ~eventWithContextAccessor=Context.greeterContract_ClearGreetingWithContext,
+      ~eventWithContextAccessor=(
+        event,
+        context,
+      ) => Context.GreeterContract_ClearGreetingWithContext(event, context),
       ~eventName=Types.Greeter_ClearGreeting,
     )
 
@@ -319,7 +328,10 @@ module Greeter = {
     let processEventAsync = EventFunctions.makeAsyncEventProcessor(
       ~contextCreator=Context.GreeterContract.ClearGreetingEvent.contextCreator,
       ~getLoader=Handlers.GreeterContract.ClearGreeting.getLoader,
-      ~eventWithContextAccessor=Context.greeterContract_ClearGreetingWithContext,
+      ~eventWithContextAccessor=(
+        event,
+        context,
+      ) => Context.GreeterContract_ClearGreetingWithContext(event, context),
       ~eventName=Types.Greeter_ClearGreeting,
     )
 
