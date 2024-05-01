@@ -47,6 +47,8 @@ module BigInt = {
     let logand = (a: t, b: t): t => %raw("a & b")
   }
 
+  let zero = fromInt(0)
+
   let t_encode = (bigint: t) => bigint->toString->Js.Json.string
   let t_decode: Js.Json.t => result<t, Spice.decodeError> = json =>
     switch json->Js.Json.decodeString {
@@ -70,7 +72,17 @@ module BigInt = {
       Error(spiceErr)
     }
 
-  let zero = fromInt(0)
+  let schema =
+    S.string
+    ->S.setName("Ethers.BigInt")
+    ->S.transform((. s) => {
+      parser: (. string) =>
+        switch string->fromString {
+        | Some(bigInt) => bigInt
+        | None => s.fail(. "The string is not valid BigInt")
+        },
+      serializer: (. bigint) => bigint->toString,
+    })
 }
 
 type abi
