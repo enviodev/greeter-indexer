@@ -369,14 +369,14 @@ let parseRawEvent = (
     | Greeter_NewGreeting =>
       rawEvent->decodeRawEventWith(
         ~decoder=Types.GreeterContract.NewGreetingEvent.eventArgs_decode,
-        ~variantAccessor=Types.greeterContract_NewGreeting,
+        ~variantAccessor=event => Types.GreeterContract_NewGreeting(event),
         ~chain,
         ~txOrigin,
       )
     | Greeter_ClearGreeting =>
       rawEvent->decodeRawEventWith(
         ~decoder=Types.GreeterContract.ClearGreetingEvent.eventArgs_decode,
-        ~variantAccessor=Types.greeterContract_ClearGreeting,
+        ~variantAccessor=event => Types.GreeterContract_ClearGreeting(event),
         ~chain,
         ~txOrigin,
       )

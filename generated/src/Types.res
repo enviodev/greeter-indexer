@@ -182,7 +182,6 @@ module GreeterContract = {
   }
 }
 
-@deriving(accessors)
 type event =
   | GreeterContract_NewGreeting(eventLog<GreeterContract.NewGreetingEvent.eventArgs>)
   | GreeterContract_ClearGreeting(eventLog<GreeterContract.ClearGreetingEvent.eventArgs>)
