@@ -44,10 +44,10 @@ let queryErrorToMsq = (e: queryError): string => {
       ${missingParams->Js.Array2.joinWith(", ")}`
   | QueryError(e) =>
     switch e {
-    | Deserialize(e) =>
-      `Failed to deserialize response: ${e.message}
-        JSON data:
-          ${e.value->Js.Json.stringify}`
+    | Deserialize(data, e) =>
+      `Failed to deserialize response at ${e.path->S.Path.toString}: ${e->S.Error.reason}
+  JSON data:
+    ${data->Js.Json.stringify}`
     | FailedToFetch(e) =>
       let msg = e->getMsgFromExn
 

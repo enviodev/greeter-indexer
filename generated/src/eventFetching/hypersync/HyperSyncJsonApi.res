@@ -111,76 +111,127 @@ module QueryTypes = {
 }
 
 module ResponseTypes = {
+  // TODO: Should we use S.nullable or S.null (?)dule ResponseTypes = {
   //Note all fields marked as "nullable" are not explicitly null since
   //the are option fields and nulls will be deserialized to option when
   //in an optional field with spice
-  @spice
   type blockData = {
     number?: int,
     hash?: string,
-    @spice.key("parent_hash") parentHash?: string,
+    parentHash?: string,
     nonce?: int, //nullable
-    @spice.key("sha3_uncles") sha3Uncles?: string,
-    @spice.key("logs_bloom") logsBloom?: string,
-    @spice.key("transactions_root") transactionsRoot?: string,
-    @spice.key("state_root") stateRoot?: string,
-    @spice.key("receipts_root") receiptsRoot?: string,
+    sha3Uncles?: string,
+    logsBloom?: string,
+    transactionsRoot?: string,
+    stateRoot?: string,
+    receiptsRoot?: string,
     miner?: unchecksummedEthAddress,
     difficulty?: Ethers.BigInt.t, //nullable
-    @spice.key("total_difficulty") totalDifficulty?: Ethers.BigInt.t, //nullable
-    @spice.key("extra_data") extraData?: string,
+    totalDifficulty?: Ethers.BigInt.t, //nullable
+    extraData?: string,
     size?: Ethers.BigInt.t,
-    @spice.key("gas_limit") gasLimit?: Ethers.BigInt.t,
-    @spice.key("gas_used") gasUsed?: Ethers.BigInt.t,
+    gasLimit?: Ethers.BigInt.t,
+    gasUsed?: Ethers.BigInt.t,
     timestamp?: Ethers.BigInt.t,
-    @spice.key("unclus") uncles?: string, //nullable
-    @spice.key("base_fee_per_gas") baseFeePerGas?: Ethers.BigInt.t, //nullable
+    uncles?: string, //nullable
+    baseFeePerGas?: Ethers.BigInt.t, //nullable
   }
 
+  let blockDataSchema = S.object((. s) => {
+    number: ?s.field("number", S.nullable(S.int)),
+    hash: ?s.field("hash", S.nullable(S.string)),
+    parentHash: ?s.field("parent_hash", S.nullable(S.string)),
+    nonce: ?s.field("nonce", S.nullable(S.int)),
+    sha3Uncles: ?s.field("sha3_uncles", S.nullable(S.string)),
+    logsBloom: ?s.field("logs_bloom", S.nullable(S.string)),
+    transactionsRoot: ?s.field("transactions_root", S.nullable(S.string)),
+    stateRoot: ?s.field("state_root", S.nullable(S.string)),
+    receiptsRoot: ?s.field("receipts_root", S.nullable(S.string)),
+    miner: ?s.field("miner", S.nullable(S.string)),
+    difficulty: ?s.field("difficulty", S.nullable(Ethers.BigInt.schema)),
+    totalDifficulty: ?s.field("total_difficulty", S.nullable(Ethers.BigInt.schema)),
+    extraData: ?s.field("extra_data", S.nullable(S.string)),
+    size: ?s.field("size", S.nullable(Ethers.BigInt.schema)),
+    gasLimit: ?s.field("gas_limit", S.nullable(Ethers.BigInt.schema)),
+    gasUsed: ?s.field("gas_used", S.nullable(Ethers.BigInt.schema)),
+    timestamp: ?s.field("timestamp", S.nullable(Ethers.BigInt.schema)),
+    uncles: ?s.field("unclus", S.nullable(S.string)),
+    baseFeePerGas: ?s.field("base_fee_per_gas", S.nullable(Ethers.BigInt.schema)),
+  })
+
+  // TODO: Should we use S.nullable or S.null (?)
   //Note all fields marked as "nullable" are not explicitly null since
   //the are option fields and nulls will be deserialized to option when
   //in an optional field with spice
-  @spice
   type transactionData = {
-    @spice.key("block_hash") blockHash?: string,
-    @spice.key("block_number") blockNumber?: int,
+    blockHash?: string,
+    blockNumber?: int,
     from?: unchecksummedEthAddress, //nullable
     gas?: Ethers.BigInt.t,
-    @spice.key("gas_price") gasPrice?: Ethers.BigInt.t, //nullable
+    gasPrice?: Ethers.BigInt.t, //nullable
     hash?: string,
     input?: string,
     nonce?: int,
     to?: unchecksummedEthAddress, //nullable
-    @spice.key("transaction_index") transactionIndex?: int,
+    transactionIndex?: int,
     value?: Ethers.BigInt.t,
     v?: string, //nullable
     r?: string, //nullable
     s?: string, //nullable
-    @spice.key("max_priority_fee_per_gas") maxPriorityFeePerGas?: Ethers.BigInt.t, //nullable
-    @spice.key("max_fee_per_gas") maxFeePerGas?: Ethers.BigInt.t, //nullable
-    @spice.key("chain_id") chainId?: int, //nullable
-    @spice.key("cumulative_gas_used") cumulativeGasUsed?: Ethers.BigInt.t,
-    @spice.key("effective_gas_price") effectiveGasPrice?: Ethers.BigInt.t,
-    @spice.key("gas_used") gasUsed?: Ethers.BigInt.t,
-    @spice.key("contract_address") contractAddress?: unchecksummedEthAddress, //nullable
-    @spice.key("logs_bloom") logsBoom?: string,
-    @spice.key("type") type_?: int, //nullable
-    @spice.key("root") root?: string, //nullable
-    @spice.key("status") status?: int, //nullable
-    @spice.key("sighash") sighash?: string, //nullable
+    maxPriorityFeePerGas?: Ethers.BigInt.t, //nullable
+    maxFeePerGas?: Ethers.BigInt.t, //nullable
+    chainId?: int, //nullable
+    cumulativeGasUsed?: Ethers.BigInt.t,
+    effectiveGasPrice?: Ethers.BigInt.t,
+    gasUsed?: Ethers.BigInt.t,
+    contractAddress?: unchecksummedEthAddress, //nullable
+    logsBoom?: string,
+    type_?: int, //nullable
+    root?: string, //nullable
+    status?: int, //nullable
+    sighash?: string, //nullable
   }
 
+  let transactionDataSchema = S.object((. s) => {
+    blockHash: ?s.field("block_hash", S.nullable(S.string)),
+    blockNumber: ?s.field("block_number", S.nullable(S.int)),
+    from: ?s.field("from", S.nullable(S.string)),
+    gas: ?s.field("nonce", S.nullable(Ethers.BigInt.schema)),
+    gasPrice: ?s.field("gas_price", S.nullable(Ethers.BigInt.schema)),
+    hash: ?s.field("hash", S.nullable(S.string)),
+    input: ?s.field("input", S.nullable(S.string)),
+    nonce: ?s.field("nonce", S.nullable(S.int)),
+    to: ?s.field("to", S.nullable(S.string)),
+    transactionIndex: ?s.field("transaction_index", S.nullable(S.int)),
+    value: ?s.field("nonce", S.nullable(Ethers.BigInt.schema)),
+    v: ?s.field("v", S.nullable(S.string)),
+    r: ?s.field("r", S.nullable(S.string)),
+    s: ?s.field("s", S.nullable(S.string)),
+    maxPriorityFeePerGas: ?s.field("max_priority_fee_per_gas", S.nullable(Ethers.BigInt.schema)),
+    maxFeePerGas: ?s.field("max_fee_per_gas", S.nullable(Ethers.BigInt.schema)),
+    chainId: ?s.field("chain_id", S.nullable(S.int)),
+    cumulativeGasUsed: ?s.field("cumulative_gas_used", S.nullable(Ethers.BigInt.schema)),
+    effectiveGasPrice: ?s.field("effective_gas_price", S.nullable(Ethers.BigInt.schema)),
+    gasUsed: ?s.field("gas_used", S.nullable(Ethers.BigInt.schema)),
+    contractAddress: ?s.field("contract_address", S.nullable(S.string)),
+    logsBoom: ?s.field("logs_bloom", S.nullable(S.string)),
+    type_: ?s.field("type", S.nullable(S.int)),
+    root: ?s.field("root", S.nullable(S.string)),
+    status: ?s.field("status", S.nullable(S.int)),
+    sighash: ?s.field("sighash", S.nullable(S.string)),
+  })
+
+  // TODO: Should we use S.nullable or S.null (?)
   //Note all fields marked as "nullable" are not explicitly null since
   //the are option fields and nulls will be deserialized to option when
   //in an optional field with spice
-  @spice
   type logData = {
     removed?: bool, //nullable
-    @spice.key("log_index") index?: int,
-    @spice.key("transaction_index") transactionIndex?: int,
-    @spice.key("transaction_hash") transactionHash?: string,
-    @spice.key("block_hash") blockHash?: string,
-    @spice.key("block_number") blockNumber?: int,
+    index?: int,
+    transactionIndex?: int,
+    transactionHash?: string,
+    blockHash?: string,
+    blockNumber?: int,
     address?: unchecksummedEthAddress,
     data?: string,
     topic0?: Ethers.EventFilter.topic, //nullable
@@ -189,23 +240,47 @@ module ResponseTypes = {
     topic3?: Ethers.EventFilter.topic, //nullable
   }
 
-  @spice
+  let logDataSchema = S.object((. s) => {
+    removed: ?s.field("removed", S.nullable(S.bool)),
+    index: ?s.field("log_index", S.nullable(S.int)),
+    transactionIndex: ?s.field("transaction_index", S.nullable(S.int)),
+    transactionHash: ?s.field("transaction_hash", S.nullable(S.string)),
+    blockHash: ?s.field("block_hash", S.nullable(S.string)),
+    blockNumber: ?s.field("block_number", S.nullable(S.int)),
+    address: ?s.field("address", S.nullable(S.string)),
+    data: ?s.field("data", S.nullable(S.string)),
+    topic0: ?s.field("topic0", S.nullable(S.string)),
+    topic1: ?s.field("topic1", S.nullable(S.string)),
+    topic2: ?s.field("topic2", S.nullable(S.string)),
+    topic3: ?s.field("topic3", S.nullable(S.string)),
+  })
+
+  // TODO: Should we use S.nullable or S.null (?)dule ResponseTypes = {
   type data = {
     blocks?: array<blockData>,
     transactions?: array<transactionData>,
     logs?: array<logData>,
   }
 
-  @spice
+  let dataSchema = S.object((. s) => {
+    blocks: ?s.field("blocks", S.array(blockDataSchema)->S.nullable),
+    transactions: ?s.field("transactions", S.array(transactionDataSchema)->S.nullable),
+    logs: ?s.field("logs", S.array(logDataSchema)->S.nullable),
+  })
+
   type queryResponse = {
     data: array<data>,
-    @spice.key("archive_height") archiveHeight: int,
-    @spice.key("next_block") nextBlock: int,
-    @spice.key("total_execution_time") totalTime: int,
+    archiveHeight: int,
+    nextBlock: int,
+    totalTime: int,
   }
 
-  @spice
-  type heightResponse = {height: int}
+  let queryResponseSchema = S.object((. s) => {
+    data: s.field("data", S.array(dataSchema)),
+    archiveHeight: s.field("archive_height", S.int),
+    nextBlock: s.field("next_block", S.int),
+    totalTime: s.field("total_execution_time", S.int),
+  })
 }
 
 let executeHyperSyncQuery = (~serverUrl, ~postQueryBody: QueryTypes.postQueryBody): promise<
@@ -215,18 +290,20 @@ let executeHyperSyncQuery = (~serverUrl, ~postQueryBody: QueryTypes.postQueryBod
     ~endpoint=serverUrl ++ "/query",
     ~method=#POST,
     ~bodyAndEncoder=(postQueryBody, QueryTypes.postQueryBody_encode),
-    ~responseDecoder=ResponseTypes.queryResponse_decode,
+    ~responseSchema=ResponseTypes.queryResponseSchema,
     (),
   )
 }
 
-let getArchiveHeight = async (~serverUrl): result<int, QueryHelpers.queryError> => {
-  let res = await QueryHelpers.executeFetchRequest(
-    ~endpoint=serverUrl ++ "/height",
-    ~method=#GET,
-    ~responseDecoder=ResponseTypes.heightResponse_decode,
-    (),
-  )
+let getArchiveHeight = {
+  let responseSchema = S.object((. s) => s.field("height", S.int))
 
-  res->Belt.Result.map(res => res.height)
+  async (~serverUrl): result<int, QueryHelpers.queryError> => {
+    await QueryHelpers.executeFetchRequest(
+      ~endpoint=serverUrl ++ "/height",
+      ~method=#GET,
+      ~responseSchema,
+      (),
+    )
+  }
 }
