@@ -1,4 +1,3 @@
-@spice
 type unchecksummedEthAddress = string
 
 module QueryTypes = {

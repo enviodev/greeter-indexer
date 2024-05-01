@@ -184,7 +184,6 @@ module BlockTag = {
 }
 
 module EventFilter = {
-  @spice
   type topic = string
   type t = {
     address: ethAddress,
