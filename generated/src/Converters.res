@@ -362,9 +362,11 @@ let parseRawEvent = (
   ~chain,
   ~txOrigin: option<Ethers.ethAddress>,
 ): Spice.result<Types.eventBatchQueueItem> => {
-  rawEvent.eventType
-  ->Types.eventName_decode
-  ->Belt.Result.flatMap(eventName => {
+  switch rawEvent.eventType->S.parseWith(Types.eventNameSchema) {
+  | Ok(_) as ok => ok
+  | Error({path} as error) =>
+    Spice.error(~path=path->S.Path.toString, error->S.Error.reason, rawEvent.eventType)
+  }->Belt.Result.flatMap(eventName => {
     switch eventName {
     | Greeter_NewGreeting =>
       rawEvent->decodeRawEventWith(

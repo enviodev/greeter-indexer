@@ -186,10 +186,10 @@ type event =
   | GreeterContract_NewGreeting(eventLog<GreeterContract.NewGreetingEvent.eventArgs>)
   | GreeterContract_ClearGreeting(eventLog<GreeterContract.ClearGreetingEvent.eventArgs>)
 
-@spice
 type eventName =
-  | @spice.as("Greeter_NewGreeting") Greeter_NewGreeting
-  | @spice.as("Greeter_ClearGreeting") Greeter_ClearGreeting
+  | @as("Greeter_NewGreeting") Greeter_NewGreeting
+  | @as("Greeter_ClearGreeting") Greeter_ClearGreeting
+let eventNameSchema = S.union([S.literal(Greeter_NewGreeting), S.literal(Greeter_ClearGreeting)])
 
 let eventNameToString = (eventName: eventName) =>
   switch eventName {

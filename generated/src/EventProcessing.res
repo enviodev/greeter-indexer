@@ -60,7 +60,7 @@ let addEventToRawEvents = (
     srcAddress,
     blockHash,
     blockTimestamp,
-    eventType: eventName->Types.eventName_encode,
+    eventType: eventName->S.serializeOrRaiseWith(Types.eventNameSchema),
     params: jsonSerializedParams->Js.Json.stringify,
   }
 

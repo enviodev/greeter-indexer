@@ -97,8 +97,8 @@ module EventFunctions = {
       let logger = Logging.createChild(
         ~params={
           "Context": `Test Processor for ${eventName
-            ->Types.eventName_encode
-            ->Js.Json.stringify} Event`,
+            ->S.serializeToJsonStringWith(. Types.eventNameSchema)
+            ->Result.getExn} Event`,
           "Chain ID": chainId,
           "event": event,
         },
