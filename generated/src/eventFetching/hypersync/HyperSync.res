@@ -87,7 +87,7 @@ module LogsQuery = {
   let makeRequestBody = (
     ~fromBlock,
     ~toBlockInclusive,
-    ~addressesWithTopics: ContractInterfaceManager.contractAdressesAndTopics,
+    ~addressesWithTopics: ContractInterfaceManager.contractAddressesAndTopics,
   ): HyperSyncClient.QueryTypes.postQueryBody => {
     fromBlock,
     toBlockExclusive: toBlockInclusive + 1,
@@ -203,7 +203,7 @@ module LogsQuery = {
     ~serverUrl,
     ~fromBlock,
     ~toBlock,
-    ~contractAddressesAndtopics: ContractInterfaceManager.contractAdressesAndTopics,
+    ~contractAddressesAndtopics: ContractInterfaceManager.contractAddressesAndTopics,
   ): queryResponse<logsQueryPage> => {
     //TODO: This needs to be modified so that only related topics to addresses get passed in
     let body = makeRequestBody(

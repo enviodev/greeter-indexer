@@ -158,8 +158,8 @@ let getAllTopicsAndAddresses = (self: t): addressesAndTopics => {
   {addresses, topics}
 }
 
-type contractAdressesAndTopics = array<HyperSyncClient.QueryTypes.logParams>
-let getAllContractTopicsAndAddresses = (self: t): contractAdressesAndTopics => {
+type contractAddressesAndTopics = array<HyperSyncClient.QueryTypes.logParams>
+let getAllContractTopicsAndAddresses = (self: t): contractAddressesAndTopics => {
   self.contractAddressMapping.addressesByName
   ->Js.Dict.keys
   ->Belt.Array.map(contractName => {
