@@ -1,9 +1,9 @@
 // Graphql Enum Type Variants
-@spice @genType.as("Status")
+@genType.as("Status")
 type status = [
-  | @spice.as("PENDING") #PENDING
-  | @spice.as("Deleted") #Deleted
-  | @spice.as("created") #Created
+  | #PENDING
+  | #Deleted
+  | #Created
 ]
 let statusDefault = #PENDING
 let statusSchema: S.t<status> = S.union([

@@ -35,7 +35,7 @@ type dynamicContractRegistryEntity = {
   @as("contract_type") contractType: string,
 }
 
-@spice @genType.as("UserEntity")
+@genType.as("UserEntity")
 type userEntity = {
   greetings: array<string>,
   id: id,

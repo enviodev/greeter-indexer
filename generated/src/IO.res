@@ -372,9 +372,9 @@ let executeEntityFunction = (
 let executeSet = executeEntityFunction(~dbOp=Set)
 let executeDelete = executeEntityFunction(~dbOp=Delete)
 
-let executeSetSchemaEntity = (~entityEncoder) =>
+let executeSetSchemaEntity = (~entitySchema) =>
   executeSet(~getInputValFromRow=row => {
-    row.entity->entityEncoder
+    row.entity->S.serializeOrRaiseWith(entitySchema)
   })
 
 let executeBatch = async (sql, ~inMemoryStore: InMemoryStore.t) => {
@@ -405,7 +405,7 @@ let executeBatch = async (sql, ~inMemoryStore: InMemoryStore.t) => {
   let setUsers = executeSetSchemaEntity(
     ~dbFunction=DbFunctions.User.batchSet,
     ~rows=inMemoryStore.user->InMemoryStore.User.values,
-    ~entityEncoder=Types.userEntity_encode,
+    ~entitySchema=Types.userEntitySchema,
   )
 
   let res = await sql->Postgres.beginSql(sql => {

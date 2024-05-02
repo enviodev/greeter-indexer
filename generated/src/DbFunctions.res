@@ -166,18 +166,16 @@ module User = {
   open Types
 
   let decodeUnsafe = (entityJson: Js.Json.t): userEntity => {
-    let entityDecoded = switch entityJson->userEntity_decode {
-    | Ok(v) => Ok(v)
+    switch entityJson->S.parseWith(Types.userEntitySchema) {
+    | Ok(entity) => entity
     | Error(e) =>
       Logging.error({
         "err": e,
-        "msg": "EE700: Unable to parse row from database of entity user using spice",
+        "msg": "EE700: Failed to parse row from database of entity User using rescript-schema",
         "raw_unparsed_object": entityJson,
       })
-      Error(e)
-    }->Belt.Result.getExn
-
-    entityDecoded
+      S.Error.raise(e)
+    }
   }
 
   @module("./DbFunctionsImplementation.js")
@@ -192,6 +190,6 @@ module User = {
 
   let readEntities = async (sql: Postgres.sql, ids: array<Types.id>): array<userEntity> => {
     let res = await readEntitiesFromDb(sql, ids)
-    res->Belt.Array.map(entityJson => entityJson->decodeUnsafe)
+    res->Belt.Array.map(decodeUnsafe)
   }
 }
