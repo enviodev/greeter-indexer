@@ -1,6 +1,13 @@
+enum Status {
+  PENDING
+  Deleted
+  created
+}
+
 type User {
   id: ID!
   greetings: [String!]!
   latestGreeting: String!
   numberOfGreetings: Int!
+  status: Status!
 }

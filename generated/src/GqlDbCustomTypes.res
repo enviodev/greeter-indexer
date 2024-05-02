@@ -26,4 +26,17 @@ module Float = {
       }
       Error(spiceErr)
     }
+
+  let schema =
+    S.string
+    ->S.setName("GqlDbCustomTypes.Float")
+    ->S.transform((. s) => {
+      parser: (. string) => {
+        switch string->Belt.Float.fromString {
+        | Some(db) => db
+        | None => s.fail(. "The string is not valid GqlDbCustomTypes.Float")
+        }
+      },
+      serializer: (. float) => float->Js.Float.toString,
+    })
 }

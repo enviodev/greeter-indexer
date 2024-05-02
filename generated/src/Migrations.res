@@ -179,7 +179,22 @@ module DynamicContractRegistryTable = {
   @@warning("+21")
 }
 
-module EnumTypes = {}
+module EnumTypes = {
+  let createStatusEnum: unit => promise<unit> = async () => {
+    @warning("-21")
+    let _ = await %raw("sql`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'status') THEN
+          CREATE TYPE status AS ENUM(
+          'PENDING',
+          'Deleted',
+          'created'
+          );
+        END IF;
+      END $$;
+      `")
+  }
+}
 
 module EntityHistory = {
   let createEntityTypeEnum: unit => promise<unit> = async () => {
@@ -217,7 +232,7 @@ module EntityHistory = {
 module User = {
   let createUserTable: unit => promise<unit> = async () => {
     let _ = await %raw("sql`
-      CREATE TABLE \"public\".\"User\" (\"greetings\" text[] NOT NULL,\"id\" text NOT NULL,\"latestGreeting\" text NOT NULL,\"numberOfGreetings\" integer NOT NULL, 
+      CREATE TABLE \"public\".\"User\" (\"greetings\" text[] NOT NULL,\"id\" text NOT NULL,\"latestGreeting\" text NOT NULL,\"numberOfGreetings\" integer NOT NULL,\"status\" Status NOT NULL, 
         db_write_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
         PRIMARY KEY (\"id\"));`")
 
@@ -237,6 +252,7 @@ module User = {
         \"id\" text NOT NULL,
         \"latestGreeting\" text NOT NULL,
         \"numberOfGreetings\" integer NOT NULL,
+        \"status\" Status NOT NULL,
         db_write_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
         PRIMARY KEY (\"id\", chain_id, block_number, log_index));`")
   }
@@ -327,6 +343,10 @@ let runUpMigrations = async (~shouldExit) => {
     Logging.errorWithExn(err, `EE801: Error creating dynamic_contracts table`)->Promise.resolve
   })
 
+  await EnumTypes.createStatusEnum()->Promise.catch(err => {
+    exitCode := Failure
+    Logging.errorWithExn(err, `EE802: Error creating Status enum in postgres`)->Promise.resolve
+  })
   // TODO: catch and handle query errors
   await User.createUserTable()->Promise.catch(err => {
     exitCode := Failure

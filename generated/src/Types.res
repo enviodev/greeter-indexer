@@ -7,8 +7,8 @@ type id = string
 @@warning("-30")
 @genType
 type rec userLoaderConfig = bool
-
 @@warning("+30")
+
 @genType
 type entityRead = UserRead(id)
 
@@ -41,7 +41,16 @@ type userEntity = {
   id: id,
   latestGreeting: string,
   numberOfGreetings: int,
+  status: Enums.status,
 }
+
+let userEntitySchema = S.schema((. s) => {
+  greetings: s.matches(S.array(S.string)),
+  id: s.matches(S.string),
+  latestGreeting: s.matches(S.string),
+  numberOfGreetings: s.matches(S.int),
+  status: s.matches(Enums.statusSchema),
+})
 
 type entity = UserEntity(userEntity)
 
