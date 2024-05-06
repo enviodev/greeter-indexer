@@ -262,8 +262,7 @@ SELECT
 "greetings",
 "id",
 "latestGreeting",
-"numberOfGreetings",
-"status"
+"numberOfGreetings"
 FROM "public"."User"
 WHERE id IN ${sql(entityIdArray)};`;
 
@@ -274,16 +273,14 @@ ${sql(entityDataArray,
     "greetings",
     "id",
     "latestGreeting",
-    "numberOfGreetings",
-    "status"
+    "numberOfGreetings"
   )}
   ON CONFLICT(id) DO UPDATE
   SET
   "greetings" = EXCLUDED."greetings",
   "id" = EXCLUDED."id",
   "latestGreeting" = EXCLUDED."latestGreeting",
-  "numberOfGreetings" = EXCLUDED."numberOfGreetings",
-  "status" = EXCLUDED."status"
+  "numberOfGreetings" = EXCLUDED."numberOfGreetings"
   `;
 }
 

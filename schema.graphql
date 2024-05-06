@@ -9,5 +9,4 @@ type User {
   greetings: [String!]!
   latestGreeting: String!
   numberOfGreetings: Int!
-  status: Status!
 }

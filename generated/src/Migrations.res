@@ -232,7 +232,7 @@ module EntityHistory = {
 module User = {
   let createUserTable: unit => promise<unit> = async () => {
     let _ = await %raw("sql`
-      CREATE TABLE \"public\".\"User\" (\"greetings\" text[] NOT NULL,\"id\" text NOT NULL,\"latestGreeting\" text NOT NULL,\"numberOfGreetings\" integer NOT NULL,\"status\" Status NOT NULL, 
+      CREATE TABLE \"public\".\"User\" (\"greetings\" text[] NOT NULL,\"id\" text NOT NULL,\"latestGreeting\" text NOT NULL,\"numberOfGreetings\" integer NOT NULL, 
         db_write_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
         PRIMARY KEY (\"id\"));`")
 
@@ -252,7 +252,6 @@ module User = {
         \"id\" text NOT NULL,
         \"latestGreeting\" text NOT NULL,
         \"numberOfGreetings\" integer NOT NULL,
-        \"status\" Status NOT NULL,
         db_write_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
         PRIMARY KEY (\"id\", chain_id, block_number, log_index));`")
   }

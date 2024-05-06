@@ -41,7 +41,6 @@ type userEntity = {
   id: id,
   latestGreeting: string,
   numberOfGreetings: int,
-  status: Enums.status,
 }
 
 let userEntitySchema = S.object((. s) => {
@@ -49,7 +48,6 @@ let userEntitySchema = S.object((. s) => {
   id: s.field("id", S.string),
   latestGreeting: s.field("latestGreeting", S.string),
   numberOfGreetings: s.field("numberOfGreetings", S.int),
-  status: s.field("status", Enums.statusSchema),
 })
 let userEntitiesSchema = S.array(userEntitySchema)
 
@@ -96,6 +94,10 @@ module GreeterContract = {
       user: Ethers.ethAddress,
       greeting: string,
     }
+    let eventArgsSchema = S.object((. s) => {
+      user: s.field("user", Ethers.ethAddressSchema),
+      greeting: s.field("greeting", S.string),
+    })
 
     @genType.as("GreeterContract_NewGreeting_EventLog")
     type log = eventLog<eventArgs>
@@ -147,6 +149,9 @@ module GreeterContract = {
 
     @spice @genType
     type eventArgs = {user: Ethers.ethAddress}
+    let eventArgsSchema = S.object((. s) => {
+      user: s.field("user", Ethers.ethAddressSchema),
+    })
 
     @genType.as("GreeterContract_ClearGreeting_EventLog")
     type log = eventLog<eventArgs>
