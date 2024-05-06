@@ -44,13 +44,14 @@ type userEntity = {
   status: Enums.status,
 }
 
-let userEntitySchema = S.schema((. s) => {
-  greetings: s.matches(S.array(S.string)),
-  id: s.matches(S.string),
-  latestGreeting: s.matches(S.string),
-  numberOfGreetings: s.matches(S.int),
-  status: s.matches(Enums.statusSchema),
+let userEntitySchema = S.object((. s) => {
+  greetings: s.field("greetings", S.array(S.string)),
+  id: s.field("id", S.string),
+  latestGreeting: s.field("latestGreeting", S.string),
+  numberOfGreetings: s.field("numberOfGreetings", S.int),
+  status: s.field("status", Enums.statusSchema),
 })
+let userEntitiesSchema = S.array(userEntitySchema)
 
 type entity = UserEntity(userEntity)
 

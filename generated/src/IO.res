@@ -352,60 +352,59 @@ let loadEntitiesToInMemStore = (~entityBatch, ~inMemoryStore) => {
   )
 }
 
-let executeEntityFunction = (
+let executeSet = (
   sql: Postgres.sql,
   ~rows: array<Types.inMemoryStoreRow<'a>>,
-  ~dbOp: Types.dbOp,
-  ~dbFunction: (Postgres.sql, array<'b>) => promise<unit>,
-  ~getInputValFromRow: Types.inMemoryStoreRow<'a> => 'b,
+  ~dbFunction: (Postgres.sql, array<'a>) => promise<unit>,
 ) => {
-  let entityIds =
-    rows->Belt.Array.keepMap(row => row.dbOp == dbOp ? Some(row->getInputValFromRow) : None)
-
-  if entityIds->Array.length > 0 {
-    sql->dbFunction(entityIds)
+  let entities = rows->Belt.Array.keepMap(row => row.dbOp === Set ? Some(row.entity) : None)
+  if entities->Array.length > 0 {
+    sql->dbFunction(entities)
   } else {
     Promise.resolve()
   }
 }
 
-let executeSet = executeEntityFunction(~dbOp=Set)
-let executeDelete = executeEntityFunction(~dbOp=Delete)
-
-let executeSetSchemaEntity = (~entitySchema) =>
-  executeSet(~getInputValFromRow=row => {
-    row.entity->S.serializeOrRaiseWith(entitySchema)
-  })
+let executeDelete = (
+  sql: Postgres.sql,
+  ~rows: array<Types.inMemoryStoreRow<'a>>,
+  ~dbFunction: (Postgres.sql, array<string>) => promise<unit>,
+) => {
+  let entities = rows->Belt.Array.keepMap(row =>
+    // Unsafely assume the id is always in the `id` field
+    row.dbOp === Delete ? Some((row.entity->Obj.magic)["id"]) : None
+  )
+  if entities->Array.length > 0 {
+    sql->dbFunction(entities)
+  } else {
+    Promise.resolve()
+  }
+}
 
 let executeBatch = async (sql, ~inMemoryStore: InMemoryStore.t) => {
   let setEventSyncState = executeSet(
     ~dbFunction=DbFunctions.EventSyncState.batchSet,
-    ~getInputValFromRow=row => row.entity,
     ~rows=inMemoryStore.eventSyncState->InMemoryStore.EventSyncState.values,
   )
 
   let setRawEvents = executeSet(
     ~dbFunction=DbFunctions.RawEvents.batchSet,
-    ~getInputValFromRow=row => row.entity,
     ~rows=inMemoryStore.rawEvents->InMemoryStore.RawEvents.values,
   )
 
   let setDynamicContracts = executeSet(
     ~dbFunction=DbFunctions.DynamicContractRegistry.batchSet,
     ~rows=inMemoryStore.dynamicContractRegistry->InMemoryStore.DynamicContractRegistry.values,
-    ~getInputValFromRow={row => row.entity},
   )
 
   let deleteUsers = executeDelete(
     ~dbFunction=DbFunctions.User.batchDelete,
     ~rows=inMemoryStore.user->InMemoryStore.User.values,
-    ~getInputValFromRow={row => row.entity.id},
   )
 
-  let setUsers = executeSetSchemaEntity(
+  let setUsers = executeSet(
     ~dbFunction=DbFunctions.User.batchSet,
     ~rows=inMemoryStore.user->InMemoryStore.User.values,
-    ~entitySchema=Types.userEntitySchema,
   )
 
   let res = await sql->Postgres.beginSql(sql => {

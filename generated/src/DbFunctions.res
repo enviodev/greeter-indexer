@@ -165,31 +165,46 @@ module DynamicContractRegistry = {
 module User = {
   open Types
 
-  let decodeUnsafe = (entityJson: Js.Json.t): userEntity => {
-    switch entityJson->S.parseWith(Types.userEntitySchema) {
-    | Ok(entity) => entity
-    | Error(e) =>
+  @module("./DbFunctionsImplementation.js")
+  external batchSetRaw: (Postgres.sql, array<Js.Json.t>) => promise<unit> = "batchSetUser"
+
+  let batchSet = async (sql: Postgres.sql, entities: array<Types.userEntity>): unit => {
+    switch entities->S.serializeOrRaiseWith(Types.userEntitiesSchema) {
+    | raw => await sql->batchSetRaw(raw->(Obj.magic: Js.Json.t => array<Js.Json.t>))
+    | exception S.Raised(e) =>
+      let path = e.path->S.Path.toArray
       Logging.error({
         "err": e,
-        "msg": "EE700: Failed to parse row from database of entity User using rescript-schema",
-        "raw_unparsed_object": entityJson,
+        "msg": "EE700: Failed to serialize entity User to database representation",
+        "unparsed_entity": entities->Js.Array2.unsafe_get(
+          path->Js.Array2.unsafe_get(0)->(Obj.magic: string => int),
+        ),
       })
       S.Error.raise(e)
     }
   }
 
   @module("./DbFunctionsImplementation.js")
-  external batchSet: (Postgres.sql, array<Js.Json.t>) => promise<unit> = "batchSetUser"
-
-  @module("./DbFunctionsImplementation.js")
   external batchDelete: (Postgres.sql, array<Types.id>) => promise<unit> = "batchDeleteUser"
 
   @module("./DbFunctionsImplementation.js")
-  external readEntitiesFromDb: (Postgres.sql, array<Types.id>) => promise<array<Js.Json.t>> =
+  external readEntitiesRaw: (Postgres.sql, array<Types.id>) => promise<array<Js.Json.t>> =
     "readUserEntities"
 
   let readEntities = async (sql: Postgres.sql, ids: array<Types.id>): array<userEntity> => {
-    let res = await readEntitiesFromDb(sql, ids)
-    res->Belt.Array.map(decodeUnsafe)
+    let res = await readEntitiesRaw(sql, ids)
+    switch res->S.parseAnyOrRaiseWith(Types.userEntitiesSchema) {
+    | entity => entity
+    | exception S.Raised(e) =>
+      let path = e.path->S.Path.toArray
+      Logging.error({
+        "err": e,
+        "msg": "EE700: Failed to parse row from database of entity User",
+        "raw_unparsed_object": res->Js.Array2.unsafe_get(
+          path->Js.Array2.unsafe_get(0)->(Obj.magic: string => int),
+        ),
+      })
+      S.Error.raise(e)
+    }
   }
 }
