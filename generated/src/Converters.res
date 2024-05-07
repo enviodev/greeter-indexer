@@ -312,25 +312,13 @@ let parseEvent = (
 
 let decodeRawEventWith = (
   rawEvent: Types.rawEventsEntity,
-  ~decoder: Spice.decoder<'a>,
+  ~schema: S.t<'a>,
   ~variantAccessor: Types.eventLog<'a> => Types.event,
   ~chain,
   ~txOrigin: option<Ethers.ethAddress>,
-): Spice.result<Types.eventBatchQueueItem> => {
-  switch rawEvent.params->Js.Json.parseExn {
-  | exception exn =>
-    let message =
-      exn
-      ->Js.Exn.asJsExn
-      ->Belt.Option.flatMap(jsexn => jsexn->Js.Exn.message)
-      ->Belt.Option.getWithDefault("No message on exn")
-
-    Spice.error(`Failed at JSON.parse. Error: ${message}`, rawEvent.params->Obj.magic)
-  | v => Ok(v)
-  }
-  ->Belt.Result.flatMap(json => {
-    json->decoder
-  })
+): result<Types.eventBatchQueueItem, S.error> => {
+  rawEvent.params
+  ->S.parseJsonStringWith(schema)
   ->Belt.Result.map(params => {
     let event = {
       chainId: rawEvent.chainId,
@@ -361,23 +349,21 @@ let parseRawEvent = (
   rawEvent: Types.rawEventsEntity,
   ~chain,
   ~txOrigin: option<Ethers.ethAddress>,
-): Spice.result<Types.eventBatchQueueItem> => {
-  switch rawEvent.eventType->S.parseWith(Types.eventNameSchema) {
-  | Ok(_) as ok => ok
-  | Error({path} as error) =>
-    Spice.error(~path=path->S.Path.toString, error->S.Error.reason, rawEvent.eventType)
-  }->Belt.Result.flatMap(eventName => {
+): result<Types.eventBatchQueueItem, S.error> => {
+  rawEvent.eventType
+  ->S.parseWith(Types.eventNameSchema)
+  ->Belt.Result.flatMap(eventName => {
     switch eventName {
     | Greeter_NewGreeting =>
       rawEvent->decodeRawEventWith(
-        ~decoder=Types.GreeterContract.NewGreetingEvent.eventArgs_decode,
+        ~schema=Types.GreeterContract.NewGreetingEvent.eventArgsSchema,
         ~variantAccessor=event => Types.GreeterContract_NewGreeting(event),
         ~chain,
         ~txOrigin,
       )
     | Greeter_ClearGreeting =>
       rawEvent->decodeRawEventWith(
-        ~decoder=Types.GreeterContract.ClearGreetingEvent.eventArgs_decode,
+        ~schema=Types.GreeterContract.ClearGreetingEvent.eventArgsSchema,
         ~variantAccessor=event => Types.GreeterContract_ClearGreeting(event),
         ~chain,
         ~txOrigin,

@@ -102,6 +102,9 @@ importers:
       react:
         specifier: 18.2.0
         version: 18.2.0
+      rescript:
+        specifier: 11.0.1
+        version: 11.0.1
       rescript-envsafe:
         specifier: 3.1.0
         version: 3.1.0(rescript-schema@6.4.0)(rescript@11.0.1)
@@ -117,13 +120,6 @@ importers:
       yargs:
         specifier: 17.7.2
         version: 17.7.2
-    devDependencies:
-      '@greenlabs/ppx-spice':
-        specifier: 0.1.14
-        version: 0.1.14
-      rescript:
-        specifier: 11.0.1
-        version: 11.0.1
 
 packages:
 
@@ -247,11 +243,6 @@ packages:
   /@glennsl/rescript-fetch@0.2.0:
     resolution: {integrity: sha512-0tsEqJ/6/WBm02prM4RYG+qpnNTaB8QKKIeQHXdDaE4C5YfA/nzjxMNW3CjsGIaEgyrAmmIXFS0kx24UjvOI6A==}
     dev: false
-
-  /@greenlabs/ppx-spice@0.1.14:
-    resolution: {integrity: sha512-2zP5E3+yWCRwYkvOl1A/VoRC1ixHdIa4CujsGD3uwbAzfJkrGc7KH83Zbc+Yw858+RNw2GKrNC35f0CNVMusHw==}
-    requiresBuild: true
-    dev: true
 
   /@jest/expect-utils@29.7.0:
     resolution: {integrity: sha512-GlsNBWiFQFCVi9QVSx7f5AgMeLxe9YCCs5PuP2O2LdjDAA8Jh9eX7lA1Jq/xdXw3Wb3hyvlFNfZIfcRetSzYcA==}
@@ -2055,6 +2046,7 @@ packages:
     engines: {node: '>=10'}
     hasBin: true
     requiresBuild: true
+    dev: false
 
   /restore-cursor@3.1.0:
     resolution: {integrity: sha512-l+sSefzHpj5qimhFSE5a8nufZYAM3sBSVMAPtYkmC+4EH2anSGaEMXSD0izRQbu9nfyQ9y5JrVmp7E8oZrUjvA==}

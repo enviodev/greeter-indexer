@@ -1,7 +1,7 @@
 //*************
 //***ENTITIES**
 //*************
-@spice @genType.as("Id")
+@genType.as("Id")
 type id = string
 
 @@warning("-30")
@@ -89,7 +89,7 @@ module GreeterContract = {
       @as("1") greeting: string,
     }
 
-    @spice @genType
+    @genType
     type eventArgs = {
       user: Ethers.ethAddress,
       greeting: string,
@@ -147,7 +147,7 @@ module GreeterContract = {
     //eg. if an event param is called "values" it will clash since eventArgs will have a '.values()' iterator
     type ethersEventArgs = {@as("0") user: Ethers.ethAddress}
 
-    @spice @genType
+    @genType
     type eventArgs = {user: Ethers.ethAddress}
     let eventArgsSchema = S.object((. s) => {
       user: s.field("user", Ethers.ethAddressSchema),
