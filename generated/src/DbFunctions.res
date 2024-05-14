@@ -21,7 +21,7 @@ module ChainMetadata = {
     @as("num_batches_fetched") numBatchesFetched: int,
     @as("latest_fetched_block_number") latestFetchedBlockNumber: int,
     @as("timestamp_caught_up_to_head_or_endblock")
-    timestampCaughtUpToHeadOrEndblock: option<Js.Date.t>,
+    timestampCaughtUpToHeadOrEndblock: Js.Nullable.t<Js.Date.t>,
   }
 
   @module("./DbFunctionsImplementation.js")
@@ -49,6 +49,39 @@ module ChainMetadata = {
     let arr = await sql->readLatestChainMetadataState(~chainId)
     arr->Belt.Array.get(0)
   }
+}
+
+module EndOfBlockRangeScannedData = {
+  type endOfBlockRangeScannedData = {
+    @as("chain_id") chainId: int,
+    @as("block_timestamp") blockTimestamp: int,
+    @as("block_number") blockNumber: int,
+    @as("block_hash") blockHash: string,
+  }
+
+  @module("./DbFunctionsImplementation.js")
+  external batchSet: (Postgres.sql, array<endOfBlockRangeScannedData>) => promise<unit> =
+    "batchSetEndOfBlockRangeScannedData"
+
+  let setEndOfBlockRangeScannedData = (sql, endOfBlockRangeScannedData) =>
+    batchSet(sql, [endOfBlockRangeScannedData])
+
+  @module("./DbFunctionsImplementation.js")
+  external readEndOfBlockRangeScannedDataForChain: (
+    Postgres.sql,
+    ~chainId: int,
+  ) => promise<array<endOfBlockRangeScannedData>> = "readEndOfBlockRangeScannedDataForChain"
+
+  @module("./DbFunctionsImplementation.js")
+  external deleteStaleEndOfBlockRangeScannedDataForChain: (
+    Postgres.sql,
+    ~chainId: int,
+    //minimum blockNumber that should be kept in db
+    ~blockNumberThreshold: int,
+    //minimum blockTimestamp that should be kept in db
+    //(timestamp could be lower/higher than blockTimestampThreshold depending on multichain configuration)
+    ~blockTimestampThreshold: int,
+  ) => promise<unit> = "deleteStaleEndOfBlockRangeScannedDataForChain"
 }
 
 module EventSyncState = {
@@ -128,6 +161,12 @@ module RawEvents = {
 
     row->Belt.Array.get(0)->Belt.Option.map(row => row.blockNumber)
   }
+
+  @module("./DbFunctionsImplementation.js")
+  external deleteAllRawEventsAfterEventIdentifier: (
+    Postgres.sql,
+    ~eventIdentifier: Types.eventIdentifier,
+  ) => promise<unit> = "deleteAllRawEventsAfterEventIdentifier"
 }
 
 module DynamicContractRegistry = {
@@ -153,13 +192,179 @@ module DynamicContractRegistry = {
     @as("event_id") eventId: Ethers.BigInt.t,
   }
 
+  let contractTypeAndAddressSchema = S.object((. s) => {
+    contractAddress: s.field("contract_address", Ethers.ethAddressSchema),
+    contractType: s.field("contract_type", S.string),
+    eventId: s.field("event_id", Ethers.BigInt.schema),
+  })
+
+  let contractTypeAndAddressArraySchema = S.array(contractTypeAndAddressSchema)
+
   ///Returns an array with 1 block number (the highest processed on the given chainId)
   @module("./DbFunctionsImplementation.js")
-  external readDynamicContractsOnChainIdAtOrBeforeBlock: (
+  external readDynamicContractsOnChainIdAtOrBeforeBlockRaw: (
     Postgres.sql,
     ~chainId: chainId,
     ~startBlock: int,
-  ) => promise<array<contractTypeAndAddress>> = "readDynamicContractsOnChainIdAtOrBeforeBlock"
+  ) => promise<Js.Json.t> = "readDynamicContractsOnChainIdAtOrBeforeBlock"
+
+  let readDynamicContractsOnChainIdAtOrBeforeBlock = (sql, ~chainId, ~startBlock) =>
+    readDynamicContractsOnChainIdAtOrBeforeBlockRaw(
+      sql,
+      ~chainId,
+      ~startBlock,
+    )->Promise.thenResolve(json => json->S.parseOrRaiseWith(contractTypeAndAddressArraySchema))
+
+  @module("./DbFunctionsImplementation.js")
+  external deleteAllDynamicContractRegistrationsAfterEventIdentifier: (
+    Postgres.sql,
+    ~eventIdentifier: Types.eventIdentifier,
+  ) => promise<unit> = "deleteAllDynamicContractRegistrationsAfterEventIdentifier"
+}
+
+type entityHistoryItem = {
+  block_timestamp: int,
+  chain_id: int,
+  block_number: int,
+  log_index: int,
+  previous_block_timestamp: option<int>,
+  previous_chain_id: option<int>,
+  previous_block_number: option<int>,
+  previous_log_index: option<int>,
+  params: option<Js.Json.t>,
+  entity_type: string,
+  entity_id: string,
+}
+
+let entityHistoryItemSchema = S.object((. s) => {
+  block_timestamp: s.field("block_timestamp", S.int),
+  chain_id: s.field("chain_id", S.int),
+  block_number: s.field("block_number", S.int),
+  log_index: s.field("log_index", S.int),
+  previous_block_timestamp: s.field("previous_block_timestamp", S.null(S.int)),
+  previous_chain_id: s.field("previous_chain_id", S.null(S.int)),
+  previous_block_number: s.field("previous_block_number", S.null(S.int)),
+  previous_log_index: s.field("previous_log_index", S.null(S.int)),
+  params: s.field("params", S.null(S.json)),
+  entity_type: s.field("entity_type", S.string),
+  entity_id: s.field("entity_id", S.string),
+})
+
+module EntityHistory = {
+  //Given chainId, blockTimestamp, blockNumber
+  //Delete all rows where chain_id = chainId and block_timestamp < blockTimestamp and block_number < blockNumber
+  //But keep 1 row that is satisfies this condition and has the most recent block_number
+  @module("./DbFunctionsImplementation.js")
+  external deleteAllEntityHistoryOnChainBeforeThreshold: (
+    Postgres.sql,
+    ~chainId: int,
+    ~blockNumberThreshold: int,
+    ~blockTimestampThreshold: int,
+  ) => promise<unit> = "deleteAllEntityHistoryOnChainBeforeThreshold"
+
+  @module("./DbFunctionsImplementation.js")
+  external batchSetInternal: (
+    Postgres.sql,
+    ~entityHistoriesToSet: array<Js.Json.t>,
+  ) => promise<unit> = "batchInsertEntityHistory"
+
+  let batchSet = (sql, ~entityHistoriesToSet) => {
+    //Encode null for for the with prev types so that it's not undefined
+    batchSetInternal(
+      sql,
+      ~entityHistoriesToSet=entityHistoriesToSet->Belt.Array.map(v =>
+        v->S.serializeOrRaiseWith(entityHistoryItemSchema)
+      ),
+    )
+  }
+
+  @module("./DbFunctionsImplementation.js")
+  external deleteAllEntityHistoryAfterEventIdentifier: (
+    Postgres.sql,
+    ~eventIdentifier: Types.eventIdentifier,
+  ) => promise<unit> = "deleteAllEntityHistoryAfterEventIdentifier"
+
+  type rollbackDiffResponseRaw = {
+    entity_type: Types.entityName,
+    entity_id: string,
+    chain_id: option<int>,
+    block_timestamp: option<int>,
+    block_number: option<int>,
+    log_index: option<int>,
+    val: option<Js.Json.t>,
+  }
+
+  let rollbackDiffResponseRawSchema = S.object((. s) => {
+    entity_type: s.field("entity_type", Types.entityNameSchema),
+    entity_id: s.field("entity_id", S.string),
+    chain_id: s.field("chain_id", S.null(S.int)),
+    block_timestamp: s.field("block_timestamp", S.null(S.int)),
+    block_number: s.field("block_number", S.null(S.int)),
+    log_index: s.field("log_index", S.null(S.int)),
+    val: s.field("val", S.null(S.json)),
+  })
+
+  type previousEntity = {
+    eventIdentifier: Types.eventIdentifier,
+    entity: Types.entity,
+  }
+
+  type rollbackDiffResponse = {
+    entityType: Types.entityName,
+    entityId: string,
+    previousEntity: option<previousEntity>,
+  }
+
+  let rollbackDiffResponse_decode = (json: Js.Json.t) => {
+    json
+    ->S.parseWith(. rollbackDiffResponseRawSchema)
+    ->Belt.Result.flatMap(raw => {
+      switch raw {
+      | {
+          val: Some(val),
+          chain_id: Some(chainId),
+          block_number: Some(blockNumber),
+          block_timestamp: Some(blockTimestamp),
+          log_index: Some(logIndex),
+          entity_type,
+        } =>
+        entity_type
+        ->Types.getEntityParamsDecoder(val)
+        ->Belt.Result.map(entity => {
+          let eventIdentifier: Types.eventIdentifier = {
+            chainId,
+            blockTimestamp,
+            blockNumber,
+            logIndex,
+          }
+
+          Some({entity, eventIdentifier})
+        })
+      | _ => Ok(None)
+      }->Belt.Result.map(previousEntity => {
+        entityType: raw.entity_type,
+        entityId: raw.entity_id,
+        previousEntity,
+      })
+    })
+  }
+
+  let rollbackDiffResponseArr_decode = (jsonArr: array<Js.Json.t>) => {
+    jsonArr->Belt.Array.map(rollbackDiffResponse_decode)->Utils.mapArrayOfResults
+  }
+
+  @module("./DbFunctionsImplementation.js")
+  external getRollbackDiffInternal: (
+    Postgres.sql,
+    ~blockTimestamp: int,
+    ~chainId: int,
+    ~blockNumber: int,
+  ) => promise<array<Js.Json.t>> = "getRollbackDiff"
+
+  let getRollbackDiff = (sql, ~blockTimestamp: int, ~chainId: int, ~blockNumber: int) =>
+    getRollbackDiffInternal(sql, ~blockTimestamp, ~chainId, ~blockNumber)->Promise.thenResolve(
+      rollbackDiffResponseArr_decode,
+    )
 }
 
 module User = {

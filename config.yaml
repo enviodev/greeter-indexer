@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=./generated/config.schema.json
 name: Greeter
 description: Greeter indexer
 #Global contract definitions that must contain all definitions except

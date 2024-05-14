@@ -14,7 +14,7 @@ module EventsProcessed = {
   let allChainsEventsProcessedToEndblock = (chainFetchers: ChainMap.t<ChainFetcher.t>) => {
     chainFetchers
     ->ChainMap.values
-    ->Array.reduce(true, (accum, cf) => cf.hasProcessedToEndblock && accum)
+    ->Array.reduce(true, (accum, cf) => cf->ChainFetcher.hasProcessedToEndblock && accum)
   }
 
   let makeFromChainManager = (cm: ChainManager.t): t => {
@@ -72,7 +72,6 @@ let addEventToRawEvents = (
   inMemoryStore.rawEvents->IO.InMemoryStore.RawEvents.set(
     ~key={chainId, eventId: eventIdStr},
     ~entity=rawEvent,
-    ~dbOp=Set,
   )
 }
 
@@ -91,7 +90,6 @@ let updateEventSyncState = (
       logIndex,
       transactionIndex,
     },
-    ~dbOp=Set,
   )
 }
 

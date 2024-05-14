@@ -41,7 +41,31 @@ type chainConfig = {
 
 type chainConfigs = ChainMap.t<chainConfig>
 
-let configShouldUseHypersyncClientDecoder = true
+type historyFlag = FullHistory | MinHistory
+type rollbackFlag = RollbackOnReorg | NoRollback
+type historyConfig = {rollbackFlag: rollbackFlag, historyFlag: historyFlag}
+
+let makeHistoryConfig = (~shouldRollbackOnReorg, ~shouldSaveFullHistory) => {
+  rollbackFlag: shouldRollbackOnReorg ? RollbackOnReorg : NoRollback,
+  historyFlag: shouldSaveFullHistory ? FullHistory : MinHistory,
+}
+
+let historyConfig = makeHistoryConfig(~shouldRollbackOnReorg=false, ~shouldSaveFullHistory=false)
+
+let shouldRollbackOnReorg = switch historyConfig {
+| {rollbackFlag: RollbackOnReorg} => true
+| _ => false
+}
+
+let shouldSaveHistory = switch historyConfig {
+| {rollbackFlag: RollbackOnReorg} | {historyFlag: FullHistory} => true
+| _ => false
+}
+
+let shouldPruneHistory = switch historyConfig {
+| {historyFlag: MinHistory} => true
+| _ => false
+}
 
 /**
 Determines whether to use HypersyncClient Decoder or Viem for parsing events
@@ -51,17 +75,11 @@ event_decoder: "viem" || "hypersync-client"
 ```
 */
 let shouldUseHypersyncClientDecoder =
-  Env.Configurable.shouldUseHypersyncClientDecoder->Belt.Option.getWithDefault(
-    configShouldUseHypersyncClientDecoder,
-  )
-
-let configIsUnorderedMultichainMode = false
+  Env.Configurable.shouldUseHypersyncClientDecoder->Belt.Option.getWithDefault(true)
 
 let isUnorderedMultichainMode =
   Env.Configurable.isUnorderedMultichainMode->Belt.Option.getWithDefault(
-    Env.Configurable.unstable__temp_unordered_head_mode->Belt.Option.getWithDefault(
-      configIsUnorderedMultichainMode,
-    ),
+    Env.Configurable.unstable__temp_unordered_head_mode->Belt.Option.getWithDefault(false),
   )
 
 let db: Postgres.poolConfig = {
@@ -107,7 +125,7 @@ let getSyncConfig = ({
 let getConfig = (chain: ChainMap.Chain.t) =>
   switch chain {
   | Chain_137 => {
-      confirmedBlockThreshold: 200, //TODO: This is currently hardcoded, it should be determined per chain
+      confirmedBlockThreshold: 200,
       syncSource: HyperSync("https://polygon.hypersync.xyz"),
       startBlock: 45336336,
       endBlock: None,
@@ -124,7 +142,7 @@ let getConfig = (chain: ChainMap.Chain.t) =>
       ],
     }
   | Chain_59144 => {
-      confirmedBlockThreshold: 200, //TODO: This is currently hardcoded, it should be determined per chain
+      confirmedBlockThreshold: 200,
       syncSource: HyperSync("https://linea.hypersync.xyz"),
       startBlock: 367801,
       endBlock: None,

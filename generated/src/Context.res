@@ -19,6 +19,13 @@ type contextCreator<'eventArgs, 'loaderContext, 'handlerContext, 'handlerContext
   ~asyncGetters: entityGetters,
 ) => genericContextCreatorFunctions<'loaderContext, 'handlerContext, 'handlerContextAsync>
 
+let getEventIdentifier = (event: Types.eventLog<'a>, ~chainId): Types.eventIdentifier => {
+  chainId,
+  blockTimestamp: event.blockTimestamp,
+  blockNumber: event.blockNumber,
+  logIndex: event.logIndex,
+}
+
 exception UnableToLoadNonNullableLinkedEntity(string)
 exception LinkedEntityNotAvailableInSyncHandler(string)
 
@@ -39,6 +46,7 @@ module GreeterContract = {
       handlerContext,
       handlerContextAsync,
     > = (~inMemoryStore, ~chainId, ~event, ~logger, ~asyncGetters) => {
+      let eventIdentifier = event->getEventIdentifier(~chainId)
       // NOTE: we could optimise this code to onle create a logger if there was a log called.
       let logger = logger->Logging.createChildFrom(
         ~logger=_,
@@ -81,6 +89,7 @@ module GreeterContract = {
             let dynamicContractRegistration: Types.dynamicContractRegistryEntity = {
               chainId,
               eventId,
+              blockTimestamp: event.blockTimestamp,
               contractAddress,
               contractType: "Greeter",
             }
@@ -90,7 +99,6 @@ module GreeterContract = {
             inMemoryStore.dynamicContractRegistry->IO.InMemoryStore.DynamicContractRegistry.set(
               ~key={chainId, contractAddress},
               ~entity=dynamicContractRegistration,
-              ~dbOp=Set,
             )
           },
         },
@@ -111,12 +119,15 @@ module GreeterContract = {
             set: entity => {
               inMemoryStore.user->IO.InMemoryStore.User.set(
                 ~key=entity.id,
-                ~entity,
-                ~dbOp=Types.Set,
+                ~entity=Set(entity)->Types.mkEntityUpdate(~eventIdentifier),
               )
             },
-            delete: id =>
-              Logging.warn(`[unimplemented delete] can't delete entity(user) with ID ${id}.`),
+            deleteUnsafe: id => {
+              inMemoryStore.user->IO.InMemoryStore.User.set(
+                ~key=id,
+                ~entity=Delete(id)->Types.mkEntityUpdate(~eventIdentifier),
+              )
+            },
             get: (id: Types.id) => {
               if optSetOfIds_user->Set.has(id) {
                 inMemoryStore.user->IO.InMemoryStore.User.get(id)
@@ -142,12 +153,15 @@ module GreeterContract = {
             set: entity => {
               inMemoryStore.user->IO.InMemoryStore.User.set(
                 ~key=entity.id,
-                ~entity,
-                ~dbOp=Types.Set,
+                ~entity=Set(entity)->Types.mkEntityUpdate(~eventIdentifier),
               )
             },
-            delete: id =>
-              Logging.warn(`[unimplemented delete] can't delete entity(user) with ID ${id}.`),
+            deleteUnsafe: id => {
+              inMemoryStore.user->IO.InMemoryStore.User.set(
+                ~key=id,
+                ~entity=Delete(id)->Types.mkEntityUpdate(~eventIdentifier),
+              )
+            },
             get: async (id: Types.id) => {
               if optSetOfIds_user->Set.has(id) {
                 inMemoryStore.user->IO.InMemoryStore.User.get(id)
@@ -158,18 +172,11 @@ module GreeterContract = {
                 | None =>
                   let entities = await asyncGetters.getUser(id)
 
-                  switch entities->Belt.Array.get(0) {
-                  | Some(entity) =>
-                    // TODO: make this work with the test framework too.
-                    IO.InMemoryStore.User.set(
-                      inMemoryStore.user,
-                      ~key=entity.id,
-                      ~dbOp=Types.Read,
-                      ~entity,
-                    )
-                    Some(entity)
-                  | None => None
-                  }
+                  let optEntity = entities->Belt.Array.get(0)
+
+                  IO.InMemoryStore.User.initValue(inMemoryStore.user, ~key=id, ~entity=optEntity)
+
+                  optEntity
                 }
               }
             },
@@ -205,6 +212,7 @@ module GreeterContract = {
       handlerContext,
       handlerContextAsync,
     > = (~inMemoryStore, ~chainId, ~event, ~logger, ~asyncGetters) => {
+      let eventIdentifier = event->getEventIdentifier(~chainId)
       // NOTE: we could optimise this code to onle create a logger if there was a log called.
       let logger = logger->Logging.createChildFrom(
         ~logger=_,
@@ -247,6 +255,7 @@ module GreeterContract = {
             let dynamicContractRegistration: Types.dynamicContractRegistryEntity = {
               chainId,
               eventId,
+              blockTimestamp: event.blockTimestamp,
               contractAddress,
               contractType: "Greeter",
             }
@@ -256,7 +265,6 @@ module GreeterContract = {
             inMemoryStore.dynamicContractRegistry->IO.InMemoryStore.DynamicContractRegistry.set(
               ~key={chainId, contractAddress},
               ~entity=dynamicContractRegistration,
-              ~dbOp=Set,
             )
           },
         },
@@ -277,12 +285,15 @@ module GreeterContract = {
             set: entity => {
               inMemoryStore.user->IO.InMemoryStore.User.set(
                 ~key=entity.id,
-                ~entity,
-                ~dbOp=Types.Set,
+                ~entity=Set(entity)->Types.mkEntityUpdate(~eventIdentifier),
               )
             },
-            delete: id =>
-              Logging.warn(`[unimplemented delete] can't delete entity(user) with ID ${id}.`),
+            deleteUnsafe: id => {
+              inMemoryStore.user->IO.InMemoryStore.User.set(
+                ~key=id,
+                ~entity=Delete(id)->Types.mkEntityUpdate(~eventIdentifier),
+              )
+            },
             get: (id: Types.id) => {
               if optSetOfIds_user->Set.has(id) {
                 inMemoryStore.user->IO.InMemoryStore.User.get(id)
@@ -308,12 +319,15 @@ module GreeterContract = {
             set: entity => {
               inMemoryStore.user->IO.InMemoryStore.User.set(
                 ~key=entity.id,
-                ~entity,
-                ~dbOp=Types.Set,
+                ~entity=Set(entity)->Types.mkEntityUpdate(~eventIdentifier),
               )
             },
-            delete: id =>
-              Logging.warn(`[unimplemented delete] can't delete entity(user) with ID ${id}.`),
+            deleteUnsafe: id => {
+              inMemoryStore.user->IO.InMemoryStore.User.set(
+                ~key=id,
+                ~entity=Delete(id)->Types.mkEntityUpdate(~eventIdentifier),
+              )
+            },
             get: async (id: Types.id) => {
               if optSetOfIds_user->Set.has(id) {
                 inMemoryStore.user->IO.InMemoryStore.User.get(id)
@@ -324,18 +338,11 @@ module GreeterContract = {
                 | None =>
                   let entities = await asyncGetters.getUser(id)
 
-                  switch entities->Belt.Array.get(0) {
-                  | Some(entity) =>
-                    // TODO: make this work with the test framework too.
-                    IO.InMemoryStore.User.set(
-                      inMemoryStore.user,
-                      ~key=entity.id,
-                      ~dbOp=Types.Read,
-                      ~entity,
-                    )
-                    Some(entity)
-                  | None => None
-                  }
+                  let optEntity = entities->Belt.Array.get(0)
+
+                  IO.InMemoryStore.User.initValue(inMemoryStore.user, ~key=id, ~entity=optEntity)
+
+                  optEntity
                 }
               }
             },

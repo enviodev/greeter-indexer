@@ -31,6 +31,7 @@ type rawEventsEntity = {
 type dynamicContractRegistryEntity = {
   @as("chain_id") chainId: int,
   @as("event_id") eventId: Ethers.BigInt.t,
+  @as("block_timestamp") blockTimestamp: int,
   @as("contract_address") contractAddress: Ethers.ethAddress,
   @as("contract_type") contractType: string,
 }
@@ -53,13 +54,60 @@ let userEntitiesSchema = S.array(userEntitySchema)
 
 type entity = UserEntity(userEntity)
 
-type dbOp = Read | Set | Delete
+type entityName = | @as("User") User
 
-@genType
-type inMemoryStoreRow<'a> = {
-  dbOp: dbOp,
-  entity: 'a,
+let entityNameSchema = S.literal(User)
+
+let getEntityParamsDecoder = entityName =>
+  switch entityName {
+  | User =>
+    json => json->S.parseWith(. userEntitySchema)->Belt.Result.map(decoded => UserEntity(decoded))
+  }
+
+type eventIdentifier = {
+  chainId: int,
+  blockTimestamp: int,
+  blockNumber: int,
+  logIndex: int,
 }
+
+type entityUpdateAction<'entityType> =
+  | Set('entityType)
+  | Delete(string)
+
+type entityUpdate<'entityType> = {
+  eventIdentifier: eventIdentifier,
+  shouldSaveHistory: bool,
+  entityUpdateAction: entityUpdateAction<'entityType>,
+}
+
+let mkEntityUpdate = (~shouldSaveHistory=true, ~eventIdentifier, entityUpdateAction) => {
+  shouldSaveHistory,
+  eventIdentifier,
+  entityUpdateAction,
+}
+
+type entityValueAtStartOfBatch<'entityType> =
+  | NotSet // The entity isn't in the DB yet
+  | AlreadySet('entityType)
+
+type existingValueInDb<'entityType> =
+  | Retrieved(entityValueAtStartOfBatch<'entityType>)
+  // NOTE: We use an postgres function solve the issue of this entities previous value not being known.
+  | Unknown
+
+type updatedValue<'entityType> = {
+  // Initial value within a batch
+  initial: existingValueInDb<'entityType>,
+  latest: entityUpdate<'entityType>,
+  history: array<entityUpdate<'entityType>>,
+}
+@genType
+type inMemoryStoreRowEntity<'entityType> =
+  | Updated(updatedValue<'entityType>)
+  | InitialReadFromDb(entityValueAtStartOfBatch<'entityType>) // This means there is no change from the db.
+
+type inMemoryStoreRowMeta<'a> = 'a
 
 //*************
 //**CONTRACTS**
@@ -106,13 +154,13 @@ module GreeterContract = {
     type userEntityHandlerContext = {
       get: id => option<userEntity>,
       set: userEntity => unit,
-      delete: id => unit,
+      deleteUnsafe: id => unit,
     }
 
     type userEntityHandlerContextAsync = {
       get: id => promise<option<userEntity>>,
       set: userEntity => unit,
-      delete: id => unit,
+      deleteUnsafe: id => unit,
     }
 
     @genType
@@ -160,13 +208,13 @@ module GreeterContract = {
     type userEntityHandlerContext = {
       get: id => option<userEntity>,
       set: userEntity => unit,
-      delete: id => unit,
+      deleteUnsafe: id => unit,
     }
 
     type userEntityHandlerContextAsync = {
       get: id => promise<option<userEntity>>,
       set: userEntity => unit,
-      delete: id => unit,
+      deleteUnsafe: id => unit,
     }
 
     @genType
@@ -204,6 +252,7 @@ type event =
 type eventName =
   | @as("Greeter_NewGreeting") Greeter_NewGreeting
   | @as("Greeter_ClearGreeting") Greeter_ClearGreeting
+// true
 let eventNameSchema = S.union([S.literal(Greeter_NewGreeting), S.literal(Greeter_ClearGreeting)])
 
 let eventNameToString = (eventName: eventName) =>
