@@ -41,10 +41,10 @@ external levels: t => 'a = "levels"
 @ocaml.doc(`Identity function to help co-erce any type to a pino log message`)
 let createPinoMessage = (message): pinoMessageBlob => Obj.magic(message)
 let createPinoMessageWithError = (message, err): pinoMessageBlobWithError => {
-  //See https://github.com/pinojs/pino-std-serializers for standard pino serializers
-  //for common objects. We have also defined the serializer in this format in the
-  // serializers type below: `type serializers = {err: Js.Json.t => Js.Json.t}`
-  Obj.magic({
+//See https://github.com/pinojs/pino-std-serializers for standard pino serializers
+//for common objects. We have also defined the serializer in this format in the
+// serializers type below: `type serializers = {err: Js.Json.t => Js.Json.t}`
+ Obj.magic({
     "msg": message,
     "err": err,
   })
@@ -60,7 +60,7 @@ module Transport = {
     target?: string,
     targets?: array<transportTarget>,
     options?: optionsObject,
-    levels?: Js.Dict.t<int>,
+    levels?: dict<int>,
     level?: logLevel,
   }
   @module("pino")
@@ -82,7 +82,7 @@ type serializers = {err: Js.Json.t => Js.Json.t}
 type options = {
   name?: string,
   level?: logLevel,
-  customLevels?: Js.Dict.t<int>,
+  customLevels?: dict<int>,
   useOnlyCustomLevels?: bool,
   depthLimit?: int,
   edgeLimit?: int,
@@ -158,7 +158,7 @@ module MultiStreamLogger = {
 
   let make = (
     ~userLogLevel: logLevel,
-    ~customLevels: Js.Dict.t<int>,
+    ~customLevels: dict<int>,
     ~logFile: option<string>,
     ~options: option<options>,
     ~defaultFileLogLevel,

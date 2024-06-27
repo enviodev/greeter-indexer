@@ -1,7 +1,4 @@
-let config: Postgres.poolConfig = {
-  ...Config.db,
-  transform: {undefined: Js.null},
-}
+let config: Postgres.poolConfig = Config.db
 let sql = Postgres.makeSql(~config)
 
 type chainId = int
@@ -86,13 +83,8 @@ module EndOfBlockRangeScannedData = {
 
 module EventSyncState = {
   @genType
-  type eventSyncState = {
-    @as("chain_id") chainId: int,
-    @as("block_number") blockNumber: int,
-    @as("log_index") logIndex: int,
-    @as("transaction_index") transactionIndex: int,
-    @as("block_timestamp") blockTimestamp: int,
-  }
+  type eventSyncState = TablesStatic.EventSyncState.t
+
   @module("./DbFunctionsImplementation.js")
   external readLatestSyncedEventOnChainIdArr: (
     Postgres.sql,
@@ -110,14 +102,14 @@ module EventSyncState = {
   }
 
   @module("./DbFunctionsImplementation.js")
-  external batchSet: (Postgres.sql, array<eventSyncState>) => promise<unit> =
+  external batchSet: (Postgres.sql, array<TablesStatic.EventSyncState.t>) => promise<unit> =
     "batchSetEventSyncState"
 }
 
 module RawEvents = {
   type rawEventRowId = (chainId, eventId)
   @module("./DbFunctionsImplementation.js")
-  external batchSet: (Postgres.sql, array<Types.rawEventsEntity>) => promise<unit> =
+  external batchSet: (Postgres.sql, array<TablesStatic.RawEvents.t>) => promise<unit> =
     "batchSetRawEvents"
 
   @module("./DbFunctionsImplementation.js")
@@ -128,26 +120,26 @@ module RawEvents = {
   external readEntities: (
     Postgres.sql,
     array<rawEventRowId>,
-  ) => promise<array<Types.rawEventsEntity>> = "readRawEventsEntities"
+  ) => promise<array<TablesStatic.RawEvents.t>> = "readRawEventsEntities"
 
   @module("./DbFunctionsImplementation.js")
   external getRawEventsPageGtOrEqEventId: (
     Postgres.sql,
     ~chainId: chainId,
-    ~eventId: Ethers.BigInt.t,
+    ~eventId: bigint,
     ~limit: int,
     ~contractAddresses: array<Ethers.ethAddress>,
-  ) => promise<array<Types.rawEventsEntity>> = "getRawEventsPageGtOrEqEventId"
+  ) => promise<array<TablesStatic.RawEvents.t>> = "getRawEventsPageGtOrEqEventId"
 
   @module("./DbFunctionsImplementation.js")
   external getRawEventsPageWithinEventIdRangeInclusive: (
     Postgres.sql,
     ~chainId: chainId,
-    ~fromEventIdInclusive: Ethers.BigInt.t,
-    ~toEventIdInclusive: Ethers.BigInt.t,
+    ~fromEventIdInclusive: bigint,
+    ~toEventIdInclusive: bigint,
     ~limit: int,
     ~contractAddresses: array<Ethers.ethAddress>,
-  ) => promise<array<Types.rawEventsEntity>> = "getRawEventsPageWithinEventIdRangeInclusive"
+  ) => promise<array<TablesStatic.RawEvents.t>> = "getRawEventsPageWithinEventIdRangeInclusive"
 
   ///Returns an array with 1 block number (the highest processed on the given chainId)
   @module("./DbFunctionsImplementation.js")
@@ -173,8 +165,10 @@ module DynamicContractRegistry = {
   type contractAddress = Ethers.ethAddress
   type dynamicContractRegistryRowId = (chainId, contractAddress)
   @module("./DbFunctionsImplementation.js")
-  external batchSet: (Postgres.sql, array<Types.dynamicContractRegistryEntity>) => promise<unit> =
-    "batchSetDynamicContractRegistry"
+  external batchSet: (
+    Postgres.sql,
+    array<TablesStatic.DynamicContractRegistry.t>,
+  ) => promise<unit> = "batchSetDynamicContractRegistry"
 
   @module("./DbFunctionsImplementation.js")
   external batchDelete: (Postgres.sql, array<dynamicContractRegistryRowId>) => promise<unit> =
@@ -184,18 +178,19 @@ module DynamicContractRegistry = {
   external readEntities: (
     Postgres.sql,
     array<dynamicContractRegistryRowId>,
-  ) => promise<array<Types.dynamicContractRegistryEntity>> = "readDynamicContractRegistryEntities"
+  ) => promise<array<TablesStatic.DynamicContractRegistry.t>> =
+    "readDynamicContractRegistryEntities"
 
   type contractTypeAndAddress = {
     @as("contract_address") contractAddress: Ethers.ethAddress,
     @as("contract_type") contractType: string,
-    @as("event_id") eventId: Ethers.BigInt.t,
+    @as("event_id") eventId: bigint,
   }
 
   let contractTypeAndAddressSchema = S.object((. s) => {
     contractAddress: s.field("contract_address", Ethers.ethAddressSchema),
     contractType: s.field("contract_type", S.string),
-    eventId: s.field("event_id", Ethers.BigInt.schema),
+    eventId: s.field("event_id", BigInt.schema),
   })
 
   let contractTypeAndAddressArraySchema = S.array(contractTypeAndAddressSchema)
@@ -285,7 +280,7 @@ module EntityHistory = {
   ) => promise<unit> = "deleteAllEntityHistoryAfterEventIdentifier"
 
   type rollbackDiffResponseRaw = {
-    entity_type: Types.entityName,
+    entity_type: Enums.EntityType.t,
     entity_id: string,
     chain_id: option<int>,
     block_timestamp: option<int>,
@@ -295,7 +290,7 @@ module EntityHistory = {
   }
 
   let rollbackDiffResponseRawSchema = S.object((. s) => {
-    entity_type: s.field("entity_type", Types.entityNameSchema),
+    entity_type: s.field("entity_type", Enums.EntityType.schema),
     entity_id: s.field("entity_id", S.string),
     chain_id: s.field("chain_id", S.null(S.int)),
     block_timestamp: s.field("block_timestamp", S.null(S.int)),
@@ -306,11 +301,11 @@ module EntityHistory = {
 
   type previousEntity = {
     eventIdentifier: Types.eventIdentifier,
-    entity: Types.entity,
+    entity: Entities.entity,
   }
 
   type rollbackDiffResponse = {
-    entityType: Types.entityName,
+    entityType: Enums.EntityType.t,
     entityId: string,
     previousEntity: option<previousEntity>,
   }
@@ -329,7 +324,7 @@ module EntityHistory = {
           entity_type,
         } =>
         entity_type
-        ->Types.getEntityParamsDecoder(val)
+        ->Entities.getEntityParamsDecoder(val)
         ->Belt.Result.map(entity => {
           let eventIdentifier: Types.eventIdentifier = {
             chainId,
@@ -365,51 +360,4 @@ module EntityHistory = {
     getRollbackDiffInternal(sql, ~blockTimestamp, ~chainId, ~blockNumber)->Promise.thenResolve(
       rollbackDiffResponseArr_decode,
     )
-}
-
-module User = {
-  open Types
-
-  @module("./DbFunctionsImplementation.js")
-  external batchSetRaw: (Postgres.sql, array<Js.Json.t>) => promise<unit> = "batchSetUser"
-
-  let batchSet = async (sql: Postgres.sql, entities: array<Types.userEntity>): unit => {
-    switch entities->S.serializeOrRaiseWith(Types.userEntitiesSchema) {
-    | raw => await sql->batchSetRaw(raw->(Obj.magic: Js.Json.t => array<Js.Json.t>))
-    | exception S.Raised(e) =>
-      let path = e.path->S.Path.toArray
-      Logging.error({
-        "err": e,
-        "msg": "EE700: Failed to serialize entity User to database representation",
-        "unparsed_entity": entities->Js.Array2.unsafe_get(
-          path->Js.Array2.unsafe_get(0)->(Obj.magic: string => int),
-        ),
-      })
-      S.Error.raise(e)
-    }
-  }
-
-  @module("./DbFunctionsImplementation.js")
-  external batchDelete: (Postgres.sql, array<Types.id>) => promise<unit> = "batchDeleteUser"
-
-  @module("./DbFunctionsImplementation.js")
-  external readEntitiesRaw: (Postgres.sql, array<Types.id>) => promise<array<Js.Json.t>> =
-    "readUserEntities"
-
-  let readEntities = async (sql: Postgres.sql, ids: array<Types.id>): array<userEntity> => {
-    let res = await readEntitiesRaw(sql, ids)
-    switch res->S.parseAnyOrRaiseWith(Types.userEntitiesSchema) {
-    | entity => entity
-    | exception S.Raised(e) =>
-      let path = e.path->S.Path.toArray
-      Logging.error({
-        "err": e,
-        "msg": "EE700: Failed to parse row from database of entity User",
-        "raw_unparsed_object": res->Js.Array2.unsafe_get(
-          path->Js.Array2.unsafe_get(0)->(Obj.magic: string => int),
-        ),
-      })
-      S.Error.raise(e)
-    }
-  }
 }

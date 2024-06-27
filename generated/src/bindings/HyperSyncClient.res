@@ -121,15 +121,15 @@ module ResponseTypes = {
     stateRoot?: string,
     receiptsRoot?: string,
     miner?: unchecksummedEthAddress,
-    difficulty?: Ethers.BigInt.t, //nullable
-    totalDifficulty?: Ethers.BigInt.t, //nullable
+    difficulty?: bigint, //nullable
+    totalDifficulty?: bigint, //nullable
     extraData?: string,
-    size?: Ethers.BigInt.t,
-    gasLimit?: Ethers.BigInt.t,
-    gasUsed?: Ethers.BigInt.t,
+    size?: bigint,
+    gasLimit?: bigint,
+    gasUsed?: bigint,
     timestamp?: int,
     uncles?: string, //nullable
-    baseFeePerGas?: Ethers.BigInt.t, //nullable
+    baseFeePerGas?: bigint, //nullable
   }
 
   //Note all fields marked as "nullable" are not explicitly null since
@@ -139,23 +139,23 @@ module ResponseTypes = {
     blockHash?: string,
     blockNumber?: int,
     from?: unchecksummedEthAddress, //nullable
-    gas?: Ethers.BigInt.t,
-    gasPrice?: Ethers.BigInt.t, //nullable
+    gas?: bigint,
+    gasPrice?: bigint, //nullable
     hash?: string,
     input?: string,
     nonce?: int,
     to?: unchecksummedEthAddress, //nullable
     @as("transactionIndex") transactionIndex?: int,
-    value?: Ethers.BigInt.t,
+    value?: bigint,
     v?: string, //nullable
     r?: string, //nullable
     s?: string, //nullable
-    maxPriorityFeePerGas?: Ethers.BigInt.t, //nullable
-    maxFeePerGas?: Ethers.BigInt.t, //nullable
+    maxPriorityFeePerGas?: bigint, //nullable
+    maxFeePerGas?: bigint, //nullable
     chainId?: int, //nullable
-    cumulativeGasUsed?: Ethers.BigInt.t,
-    effectiveGasPrice?: Ethers.BigInt.t,
-    gasUsed?: Ethers.BigInt.t,
+    cumulativeGasUsed?: bigint,
+    effectiveGasPrice?: bigint,
+    gasUsed?: bigint,
     contractAddress?: unchecksummedEthAddress, //nullable
     logsBoom?: string,
     type_?: int, //nullable
@@ -238,7 +238,7 @@ let make = (cfg: cfg) => {
 let sendEventsReq = Internal.sendEventsReq
 
 module Decoder = {
-  type abiMapping = Js.Dict.t<Ethers.abi>
+  type abiMapping = dict<Ethers.abi>
 
   type constructor
   @module("@envio-dev/hypersync-client") external constructor: constructor = "Decoder"
@@ -253,8 +253,6 @@ module Decoder = {
     t->enableChecksummedAddresses
     t
   }
-  /*
-  Note! Usinging opaque definitions here since unboxed doesn't yet support bigint!
 
   type rec decodedSolType<'a> = {val: 'a}
 
@@ -262,7 +260,7 @@ module Decoder = {
   type rec decodedRaw =
     | DecodedBool(bool)
     | DecodedStr(string)
-    | DecodedNum(Js.Bigint.t)
+    | DecodedNum(bigint)
     | DecodedVal(decodedSolType<decodedRaw>)
     | DecodedArr(array<decodedRaw>)
 
@@ -270,7 +268,7 @@ module Decoder = {
   type rec decodedUnderlying =
     | Bool(bool)
     | Str(string)
-    | Num(Js.Bigint.t)
+    | Num(bigint)
     | Arr(array<decodedUnderlying>)
 
   let rec toUnderlying = (d: decodedRaw): decodedUnderlying => {
@@ -282,39 +280,6 @@ module Decoder = {
     | DecodedArr(v) => v->Belt.Array.map(toUnderlying)->Arr
     }
   }
-*/
-
-  type decodedRaw
-  type decodedUnderlying
-  /**
-  See the commented code above. This should be possible with unboxed
-  rescript types but since there is not support yet for bigint I've just
-  copied the rescript generated code (using int instead of bigint) and swapped
-  it out int for bigint. 
-  */
-  let toUnderlying: decodedRaw => decodedUnderlying = %raw(`
-    function toUnderlying(_d) {
-      while(true) {
-        var d = _d;
-        if (Array.isArray(d)) {
-          return d.map(toUnderlying);
-        }
-        switch (typeof d) {
-          case "boolean" :
-              return d;
-          case "string" :
-              return d;
-          case "bigint" :
-              return d;
-          case "object" :
-              _d = d.val;
-              continue ;
-          default:
-            throw new Error("Unsupported type encountered: " + typeof d);
-        }
-      };
-    }
-  `)
 
   type decodedEvent = {
     indexed: array<decodedRaw>,

@@ -1,234 +1,89 @@
-let sql = Postgres.makeSql(~config=Config.db->Obj.magic /* TODO: make this have the correct type */)
+let sql = DbFunctions.sql
+@send external unsafe: (Postgres.sql, string) => promise<'a> = "unsafe"
 
-module EventSyncState = {
-  let createEventSyncStateTable: unit => promise<unit> = async () => {
-    let _ = await %raw("sql`
-      CREATE TABLE IF NOT EXISTS public.event_sync_state (
-        chain_id INTEGER NOT NULL,
-        block_number INTEGER NOT NULL,
-        log_index INTEGER NOT NULL,
-        transaction_index INTEGER NOT NULL,
-        block_timestamp INTEGER NOT NULL,
-        PRIMARY KEY (chain_id)
-      );
-      `")
-  }
+let creatTableIfNotExists = (sql, table) => {
+  open Belt
+  let fieldsMapped =
+    table
+    ->Table.getFields
+    ->Array.map(field => {
+      let {fieldType, isNullable, isArray, defaultValue} = field
+      let fieldName = field->Table.getDbFieldName
 
-  let dropEventSyncStateTable = async () => {
-    let _ = await %raw("sql`
-      DROP TABLE IF EXISTS public.event_sync_state;
-    `")
-  }
+      {
+        `"${fieldName}" ${(fieldType :> string)}${isArray ? "[]" : ""}${switch defaultValue {
+          | Some(defaultValue) => ` DEFAULT ${defaultValue}`
+          | None => isNullable ? `` : ` NOT NULL`
+          }}`
+      }
+    })
+    ->Js.Array2.joinWith(", ")
+
+  let primaryKeyFieldNames = table->Table.getPrimaryKeyFieldNames
+  let primaryKey =
+    primaryKeyFieldNames
+    ->Array.map(field => `"${field}"`)
+    ->Js.Array2.joinWith(", ")
+
+  let query = `
+    CREATE TABLE IF NOT EXISTS "public"."${table.tableName}"(${fieldsMapped}${primaryKeyFieldNames->Array.length > 0
+      ? `, PRIMARY KEY(${primaryKey})`
+      : ""});`
+
+  sql->unsafe(query)
 }
 
-module ChainMetadata = {
-  let createChainMetadataTable: unit => promise<unit> = async () => {
-    let _ = await %raw("sql`
-      CREATE TABLE IF NOT EXISTS public.chain_metadata (
-        chain_id INTEGER NOT NULL,
-        start_block INTEGER NOT NULL,
-        end_block INTEGER NULL,
-        block_height INTEGER NOT NULL,
-        first_event_block_number INTEGER NULL,
-        latest_processed_block INTEGER NULL,
-        num_events_processed INTEGER NULL,
-        is_hyper_sync BOOL NOT NULL,
-        num_batches_fetched INTEGER NOT NULL,
-        latest_fetched_block_number INTEGER NOT NULL,
-        timestamp_caught_up_to_head_or_endblock TIMESTAMP WITH TIME ZONE NULL,
-        PRIMARY KEY (chain_id)
-      );
-      `")
-  }
-
-  let dropChainMetadataTable = async () => {
-    let _ = await %raw("sql`
-      DROP TABLE IF EXISTS public.chain_metadata;
-    `")
-  }
+let makeCreateIndexQuery = (~tableName, ~indexFields) => {
+  let indexName = tableName ++ "_" ++ indexFields->Js.Array2.joinWith("_")
+  let index = indexFields->Belt.Array.map(idx => `"${idx}"`)->Js.Array2.joinWith(", ")
+  `CREATE INDEX IF NOT EXISTS "${indexName}" ON "public"."${tableName}"(${index}); `
 }
 
-module PersistedState = {
-  let createPersistedStateTable: unit => promise<unit> = async () => {
-    let _ = await %raw("sql`
-      CREATE TABLE IF NOT EXISTS public.persisted_state (
-        id SERIAL PRIMARY KEY,
-        envio_version TEXT NOT NULL, 
-        config_hash TEXT NOT NULL,
-        schema_hash TEXT NOT NULL,
-        handler_files_hash TEXT NOT NULL,
-        abi_files_hash TEXT NOT NULL
-      );
-      `")
+let createTableIndices = (sql, table: Table.table) => {
+  open Belt
+  let tableName = table.tableName
+  let createIndex = indexField => makeCreateIndexQuery(~tableName, ~indexFields=[indexField])
+  let createCompositeIndex = indexFields => {
+    makeCreateIndexQuery(~tableName, ~indexFields)
   }
 
-  let dropPersistedStateTable = async () => {
-    let _ = await %raw("sql`
-      DROP TABLE IF EXISTS public.persisted_state;
-    `")
-  }
+  let singleIndices = table->Table.getSingleIndices
+  let compositeIndices = table->Table.getCompositeIndices
+
+  let query =
+    singleIndices->Array.map(createIndex)->Js.Array2.joinWith("\n") ++
+      compositeIndices->Array.map(createCompositeIndex)->Js.Array2.joinWith("\n")
+
+  sql->unsafe(query)
 }
 
-module EndOfBlockRangeScannedData = {
-  let createEndOfBlockRangeScannedDataTable: unit => promise<unit> = async () => {
-    @warning("-21")
-    let _ = await %raw("sql`
-      CREATE TABLE IF NOT EXISTS public.end_of_block_range_scanned_data (
-        chain_id INTEGER NOT NULL,
-        block_timestamp INTEGER NOT NULL,
-        block_number INTEGER NOT NULL,
-        block_hash TEXT NOT NULL,
-        PRIMARY KEY (chain_id, block_number)
-      );
-      `")
-  }
+let createDerivedFromDbIndex = (~derivedFromField: Table.derivedFromField, ~schema: Schema.t) => {
+  let indexField = schema->Schema.getDerivedFromFieldName(derivedFromField)->Utils.unwrapResultExn
+  let query = makeCreateIndexQuery(
+    ~tableName=derivedFromField.derivedFromEntity,
+    ~indexFields=[indexField],
+  )
+  sql->unsafe(query)
 }
 
-module RawEventsTable = {
-  let createEventTypeEnum: unit => promise<unit> = async () => {
-    @warning("-21")
-    let _ = await %raw("sql`
+let createEnumIfNotExists = (sql, enum: Enums.enumType<_>) => {
+  open Belt
+  let {variants, name} = enum
+  let mappedVariants = variants->Array.map(v => `'${v->Obj.magic}'`)->Js.Array2.joinWith(", ")
+  let query = `
       DO $$ BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'event_type') THEN
-          CREATE TYPE EVENT_TYPE AS ENUM(
-          'Greeter_NewGreeting',
-          'Greeter_ClearGreeting'
-          );
+      IF NOT EXISTS(SELECT 1 FROM pg_type WHERE typname = '${name->Js.String2.toLowerCase}') THEN
+        CREATE TYPE ${name} AS ENUM(${mappedVariants});
         END IF;
-      END $$;
-      `")
-  }
+      END $$; `
 
-  let createRawEventsTable: unit => promise<unit> = async () => {
-    let _ = await createEventTypeEnum()
-
-    @warning("-21")
-    let _ = await %raw("sql`
-      CREATE TABLE IF NOT EXISTS public.raw_events (
-        chain_id INTEGER NOT NULL,
-        event_id NUMERIC NOT NULL,
-        block_number INTEGER NOT NULL,
-        log_index INTEGER NOT NULL,
-        transaction_index INTEGER NOT NULL,
-        transaction_hash TEXT NOT NULL,
-        src_address TEXT NOT NULL,
-        block_hash TEXT NOT NULL,
-        block_timestamp INTEGER NOT NULL,
-        event_type EVENT_TYPE NOT NULL,
-        params JSON NOT NULL,
-        db_write_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (chain_id, event_id)
-      );
-      `")
-  }
-
-  @@warning("-21")
-  let dropRawEventsTable = async () => {
-    let _ = await %raw("sql`
-      DROP TABLE IF EXISTS public.raw_events;
-    `")
-    let _ = await %raw("sql`
-      DROP TYPE IF EXISTS EVENT_TYPE CASCADE;
-    `")
-  }
-  @@warning("+21")
-}
-
-module DynamicContractRegistryTable = {
-  let createDynamicContractRegistryTable: unit => promise<unit> = async () => {
-    @warning("-21")
-    let _ = await %raw("sql`
-      DO $$ BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'contract_type') THEN
-          CREATE TYPE CONTRACT_TYPE AS ENUM (
-          'Greeter'
-          );
-        END IF;
-      END $$;
-      `")
-
-    @warning("-21")
-    let _ = await %raw("sql`
-      CREATE TABLE IF NOT EXISTS public.dynamic_contract_registry (
-        chain_id INTEGER NOT NULL,
-        event_id NUMERIC NOT NULL,
-        block_timestamp INTEGER NOT NULL,
-        contract_address TEXT NOT NULL,
-        contract_type CONTRACT_TYPE NOT NULL,
-        PRIMARY KEY (chain_id, contract_address)
-      );
-      `")
-  }
-
-  @@warning("-21")
-  let dropDynamicContractRegistryTable = async () => {
-    let _ = await %raw("sql`
-      DROP TABLE IF EXISTS public.dynamic_contract_registry;
-    `")
-    let _ = await %raw("sql`
-      DROP TYPE IF EXISTS EVENT_TYPE CASCADE;
-    `")
-  }
-  @@warning("+21")
-}
-
-module EnumTypes = {
-  let createStatusEnum: unit => promise<unit> = async () => {
-    @warning("-21")
-    let _ = await %raw("sql`
-      DO $$ BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'status') THEN
-          CREATE TYPE status AS ENUM(
-          'PENDING',
-          'Deleted',
-          'created'
-          );
-        END IF;
-      END $$;
-      `")
-  }
+  sql->unsafe(query)
 }
 
 module EntityHistory = {
-  let createEntityTypeEnum: unit => promise<unit> = async () => {
-    @warning("-21")
-    let _ = await %raw("sql`
-      DO $$ BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'entity_type') THEN
-          CREATE TYPE ENTITY_TYPE AS ENUM(
-            'User'
-          );
-        END IF;
-      END $$;
-      `")
-  }
-
-  let createEntityHistoryTable: unit => promise<unit> = async () => {
-    let _ = await createEntityTypeEnum()
-
-    // NULL for an `entity_id` means that the entity was deleted.
-    let _ = await %raw("sql`
-      CREATE TABLE \"public\".\"entity_history\" (
-        chain_id INTEGER NOT NULL,
-        block_timestamp INTEGER NOT NULL,
-        block_number INTEGER NOT NULL,
-        log_index INTEGER NOT NULL,
-        previous_block_timestamp INTEGER,
-        previous_chain_id INTEGER,
-        previous_block_number INTEGER,
-        previous_log_index INTEGER,
-        params JSON,
-        entity_type ENTITY_TYPE NOT NULL,
-        entity_id TEXT,
-        PRIMARY KEY (entity_id, block_timestamp, chain_id, block_number, log_index, entity_type));
-      `")
-
-    let _ = await %raw("sql`
-      CREATE INDEX idx_entity_type_composite ON entity_history(entity_type, entity_id, block_timestamp);
-    `")
-
+  let createEntityHistoryTableFunctions: unit => promise<unit> = async () => {
     // Create a function for inserting entities into the db.
-    let _ = await %raw("sql`
+    let _ = await sql->unsafe(`
       CREATE OR REPLACE FUNCTION insert_entity_history(
           p_block_timestamp INTEGER,
           p_chain_id INTEGER,
@@ -269,23 +124,12 @@ module EntityHistory = {
           VALUES (p_block_timestamp, p_chain_id, p_block_number, p_log_index, p_previous_block_timestamp, p_previous_chain_id, p_previous_block_number, p_previous_log_index, p_params, p_entity_type, p_entity_id);
       END;
       $$ LANGUAGE plpgsql;
-    `")
+    `)
   }
-
-  @@warning("-21")
-  let dropEntityHistoryTable = async () => {
-    let _ = await %raw("sql`
-      DROP TABLE IF EXISTS public.entity_history;
-    `")
-    let _ = await %raw("sql`
-      DROP TYPE IF EXISTS ENTITY_TYPE CASCADE;
-    `")
-  }
-  @@warning("+21")
 
   // NULL for an `entity_id` means that the entity was deleted.
   let createEntityHistoryPostgresFunction: unit => promise<unit> = async () => {
-    let _ = await %raw("sql`
+    let _ = await sql->unsafe(`
     CREATE OR REPLACE FUNCTION lte_entity_history(
         block_timestamp integer,
         chain_id integer,
@@ -319,10 +163,10 @@ module EntityHistory = {
         );
     END;
     $ltelogic$ LANGUAGE plpgsql STABLE;
-      `")
+      `)
 
     // Very similar to lte function but the final comparison on logIndex is a strict lt.
-    let _ = await %raw("sql`
+    let _ = await sql->unsafe(`
     CREATE OR REPLACE FUNCTION lt_entity_history(
         block_timestamp integer,
         chain_id integer,
@@ -356,9 +200,9 @@ module EntityHistory = {
         );
     END;
     $ltlogic$ LANGUAGE plpgsql STABLE;
-      `")
+      `)
 
-    let _ = await %raw("sql`
+    let _ = await sql->unsafe(`
       CREATE OR REPLACE FUNCTION get_entity_history_filter(
           start_timestamp integer,
           start_chain_id integer,
@@ -483,63 +327,7 @@ module EntityHistory = {
               new.log_index DESC;
       END;
       $$ LANGUAGE plpgsql STABLE;
-`")
-  }
-
-  // This table is purely for the sake of viewing the diffs generated by the postgres function. It will never be written to during the application.
-  let createEntityHistoryFilterTable: unit => promise<unit> = async () => {
-    // NULL for an `entity_id` means that the entity was deleted.
-    await %raw("sql`
-      CREATE TABLE \"public\".\"entity_history_filter\" (
-          entity_id TEXT NOT NULL,
-          chain_id INTEGER NOT NULL,
-          old_val JSON,
-          new_val JSON,
-          block_number INTEGER NOT NULL,
-          block_timestamp INTEGER NOT NULL,
-          previous_block_number INTEGER,
-          log_index INTEGER NOT NULL,
-          previous_log_index INTEGER,
-          entity_type ENTITY_TYPE NOT NULL,
-          PRIMARY KEY (entity_id, chain_id, block_number,previous_block_number, previous_log_index, log_index)
-          );
-      `")
-  }
-
-  // NOTE: didn't add 'delete' functions here - delete functions aren't being used currently.
-}
-
-module User = {
-  //silence unused var warnings for raw bindings
-  @@warning("-21")
-  let createUserTable: unit => promise<unit> = async () => {
-    await %raw("sql`
-      CREATE TABLE \"public\".\"User\" (
-        \"greetings\" text[] NOT NULL,
-        \"id\" text NOT NULL,
-        \"latestGreeting\" text NOT NULL,
-        \"numberOfGreetings\" integer NOT NULL,
-        db_write_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
-        PRIMARY KEY (\"id\"));`")
-
-    let _ = await %raw("sql`
-      CREATE INDEX IF NOT EXISTS \"User_id\" ON public.\"User\" (id);
-    `")
-  }
-
-  let deleteUserTable: unit => promise<unit> = async () => {
-    // NOTE: we can refine the `IF EXISTS` part because this now prints to the terminal if the table doesn't exist (which isn't nice for the developer).
-    await %raw("sql`DROP TABLE IF EXISTS \"public\".\"User\";`")
-  }
-}
-
-module DbIndexes = {
-  let createDerivedFromDbIndexes = async () => {
-    ()
-  }
-
-  let createCustomUserDefinedIndexes = async () => {
-    ()
+`)
   }
 }
 
@@ -586,71 +374,67 @@ type t
 type exitCode = | @as(0) Success | @as(1) Failure
 @send external exit: (t, exitCode) => unit = "exit"
 
+let awaitEach = Utils.awaitEach
+
 // TODO: all the migration steps should run as a single transaction
 let runUpMigrations = async (~shouldExit) => {
   let exitCode = ref(Success)
-  await PersistedState.createPersistedStateTable()->Promise.catch(err => {
-    exitCode := Failure
-    Logging.errorWithExn(err, `EE800: Error creating persisted_state table`)->Promise.resolve
+  let logger = Logging.createChild(~params={"context": "Running DB Migrations"})
+
+  let handleFailure = async (res, ~msg) =>
+    switch await res {
+    | exception exn =>
+      exitCode := Failure
+      exn->ErrorHandling.make(~msg, ~logger)->ErrorHandling.log
+    | _ => ()
+    }
+
+  //Add all enums
+  await Enums.allEnums->awaitEach(enum => {
+    let module(EnumMod) = enum
+    createEnumIfNotExists(DbFunctions.sql, EnumMod.enum)->handleFailure(
+      ~msg=`EE800: Error creating ${EnumMod.enum.name} enum`,
+    )
   })
 
-  await EventSyncState.createEventSyncStateTable()->Promise.catch(err => {
-    exitCode := Failure
-    Logging.errorWithExn(err, `EE800: Error creating event_sync_state table`)->Promise.resolve
-  })
-  await ChainMetadata.createChainMetadataTable()->Promise.catch(err => {
-    exitCode := Failure
-    Logging.errorWithExn(err, `EE800: Error creating chain_metadata table`)->Promise.resolve
-  })
-
-  await EntityHistory.createEntityHistoryTable()->Promise.catch(err => {
-    exitCode := Failure
-    Logging.errorWithExn(err, `EE800: Error creating entity history table`)->Promise.resolve
-  })
-  await EntityHistory.createEntityHistoryFilterTable()->Promise.catch(err => {
-    exitCode := Failure
-    Logging.errorWithExn(err, `EE800: Error creating entity history filter table`)->Promise.resolve
-  })
-  await EntityHistory.createEntityHistoryPostgresFunction()->Promise.catch(err => {
-    exitCode := Failure
-    Logging.errorWithExn(
-      err,
-      `EE800: Error creating entity history db function table`,
-    )->Promise.resolve
-  })
-  await EndOfBlockRangeScannedData.createEndOfBlockRangeScannedDataTable()->Promise.catch(err => {
-    exitCode := Failure
-    Logging.errorWithExn(
-      err,
-      `EE800: Error creating end_of_block_range_scanned_data table`,
-    )->Promise.resolve
-  })
-  await RawEventsTable.createRawEventsTable()->Promise.catch(err => {
-    exitCode := Failure
-    Logging.errorWithExn(err, `EE800: Error creating raw_events table`)->Promise.resolve
-  })
-  await DynamicContractRegistryTable.createDynamicContractRegistryTable()->Promise.catch(err => {
-    exitCode := Failure
-    Logging.errorWithExn(err, `EE801: Error creating dynamic_contracts table`)->Promise.resolve
+  //Create all tables with indices
+  await [TablesStatic.allTables, Entities.allTables]
+  ->Belt.Array.concatMany
+  ->awaitEach(async table => {
+    await creatTableIfNotExists(DbFunctions.sql, table)->handleFailure(
+      ~msg=`EE800: Error creating ${table.tableName} table`,
+    )
+    await createTableIndices(DbFunctions.sql, table)->handleFailure(
+      ~msg=`EE800: Error creating ${table.tableName} indices`,
+    )
   })
 
-  await EnumTypes.createStatusEnum()->Promise.catch(err => {
-    exitCode := Failure
-    Logging.errorWithExn(err, `EE802: Error creating Status enum in postgres`)->Promise.resolve
-  })
-  // TODO: catch and handle query errors
-  await User.createUserTable()->Promise.catch(err => {
-    exitCode := Failure
-    Logging.errorWithExn(err, `EE802: Error creating User table`)->Promise.resolve
-  })
+  //Create extra entity history tables
+  await EntityHistory.createEntityHistoryTableFunctions()->handleFailure(
+    ~msg=`EE800: Error creating entity history table`,
+  )
 
-  // TODO: catch errors here
-  await DbIndexes.createDerivedFromDbIndexes()
-  await DbIndexes.createCustomUserDefinedIndexes()
+  await EntityHistory.createEntityHistoryPostgresFunction()->handleFailure(
+    ~msg=`EE800: Error creating entity history db function table`,
+  )
+
+  //Create all derivedFromField indices (must be done after all tables are created)
+  await [Entities.allTables]
+  ->Belt.Array.concatMany
+  ->awaitEach(async table => {
+    await table
+    ->Table.getDerivedFromFields
+    ->awaitEach(derivedFromField => {
+      createDerivedFromDbIndex(~derivedFromField, ~schema=Entities.schema)->handleFailure(
+        ~msg=`Error creating derivedFrom index of "${derivedFromField.fieldName}" in entity "${table.tableName}"`,
+      )
+    })
+  })
 
   await TrackTables.trackAllTables()->Promise.catch(err => {
     Logging.errorWithExn(err, `EE803: Error tracking tables`)->Promise.resolve
   })
+
   if shouldExit {
     process->exit(exitCode.contents)
   }
@@ -659,10 +443,6 @@ let runUpMigrations = async (~shouldExit) => {
 
 let runDownMigrations = async (~shouldExit, ~shouldDropRawEvents) => {
   let exitCode = ref(Success)
-
-  //
-  // await User.deleteUserTable()
-  //
 
   // NOTE: For now delete any remaining tables.
   if shouldDropRawEvents {

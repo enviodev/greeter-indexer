@@ -10,6 +10,7 @@ type logsQueryPageItem = {
   log: Ethers.log,
   blockTimestamp: int,
   txOrigin: option<Ethers.ethAddress>,
+  txTo: option<Ethers.ethAddress>,
 }
 
 type logsQueryPage = hyperSyncPage<logsQueryPageItem>
@@ -75,7 +76,7 @@ let getExn = (queryResponse: queryResponse<'a>) =>
 //Ideally client should be passed in as a param to the functions but
 //we are still sharing the same signature with eth archive query builder
 module CachedClients = {
-  let cache: Js.Dict.t<HyperSyncClient.t> = Js.Dict.empty()
+  let cache: dict<HyperSyncClient.t> = Js.Dict.empty()
 
   let getClient = url => {
     switch cache->Js.Dict.get(url) {
@@ -115,7 +116,7 @@ module LogsQuery = {
         Removed,
       ],
       block: [Number, Timestamp],
-      transaction: [From],
+      transaction: [From, To],
     },
   }
 
@@ -156,7 +157,12 @@ module LogsQuery = {
         ->Belt.Option.flatMap(b => b.from)
         ->Belt.Option.flatMap(Ethers.getAddressFromString)
 
-      let pageItem: logsQueryPageItem = {log, blockTimestamp, txOrigin}
+      let txTo =
+        event.transaction
+        ->Belt.Option.flatMap(b => b.to)
+        ->Belt.Option.flatMap(Ethers.getAddressFromString)
+
+      let pageItem: logsQueryPageItem = {log, blockTimestamp, txOrigin, txTo}
       pageItem
     | _ =>
       let missingParams =
@@ -290,7 +296,7 @@ module BlockData = {
             block => {
               switch block {
               | {number: blockNumber, timestamp, hash: blockHash} =>
-                let blockTimestamp = timestamp->Ethers.BigInt.toInt->Belt.Option.getExn
+                let blockTimestamp = timestamp->BigInt.toInt->Belt.Option.getExn
                 Ok(
                   (
                     {
@@ -323,7 +329,7 @@ module BlockData = {
     }
   }
 
-  let queryBlockData = async (~serverUrl, ~blockNumber): queryResponse<
+  let rec queryBlockData = async (~serverUrl, ~blockNumber): queryResponse<
     option<ReorgDetection.blockData>,
   > => {
     let body = makeRequestBody(~blockNumber)
@@ -336,7 +342,14 @@ module BlockData = {
 
     let res = await executeQuery->Time.retryAsyncWithExponentialBackOff(~logger=Some(logger))
 
-    res->convertResponse->Belt.Result.map(res => res->Belt.Array.get(0))
+    // If the block is not found, retry the query. This can occur since replicas of hypersync might not hack caught up yet
+    if res->Belt.Result.mapWithDefault(0, res => res.nextBlock) <= blockNumber {
+      logger->Logging.childWarn(`Block #${blockNumber->Belt.Int.toString} not found in hypersync. Retrying query in 100ms.`)
+      await Time.resolvePromiseAfterDelay(~delayMilliseconds=100)
+      await queryBlockData(~serverUrl, ~blockNumber)
+    } else {
+      res->convertResponse->Belt.Result.map(res => res->Belt.Array.get(0))
+    }
   }
 
   let queryBlockDataMulti = async (~serverUrl, ~blockNumbers) => {

@@ -718,8 +718,7 @@ let rec rollback = (~lastKnownValidBlock: blockNumberAndTimestamp, self: t) => {
     }
   //Case 3 Root register that has fetched further than the confirmed valid block number
   //Should prune its queue and set its latest fetched block data to the latest known confirmed block
-  | RootRegister(_) =>
-    {
+  | RootRegister(_) => {
       ...self,
       fetchedEventQueue: self.fetchedEventQueue->pruneQueuePastValidBlock(~lastKnownValidBlock),
       latestFetchedBlock: lastKnownValidBlock,

@@ -1,7 +1,7 @@
 open Belt
 
 type chain = ChainMap.Chain.t
-type rollbackState = NoRollback | RollingBack(chain) | RollbackInMemStore(IO.InMemoryStore.t)
+type rollbackState = NoRollback | RollingBack(chain) | RollbackInMemStore(InMemoryStore.t)
 
 type t = {
   chainManager: ChainManager.t,
@@ -10,6 +10,7 @@ type t = {
   maxBatchSize: int,
   maxPerChainQueueSize: int,
   indexerStartTime: Js.Date.t,
+  asyncTaskQueue: AsyncTaskQueue.t,
   //Initialized as 0, increments, when rollbacks occur to invalidate
   //responses based on the wrong stateId
   id: int,
@@ -25,6 +26,7 @@ let make = (~chainManager) => {
   },
   indexerStartTime: Js.Date.make(),
   rollbackState: NoRollback,
+  asyncTaskQueue: AsyncTaskQueue.make(),
   id: 0,
 }
 
@@ -52,7 +54,7 @@ type shouldExit = ExitWithSuccess | NoExit
 type action =
   | BlockRangeResponse(chain, blockRangeFetchResponse)
   | SetFetchStateCurrentBlockHeight(chain, int)
-  | EventBatchProcessed(EventProcessing.loadResponse<EventProcessing.EventsProcessed.t>)
+  | EventBatchProcessed(EventProcessing.batchProcessed)
   | SetCurrentlyProcessing(bool)
   | SetCurrentlyFetchingBatch(chain, bool)
   | SetFetchState(chain, FetchState.t)
@@ -60,7 +62,7 @@ type action =
   | SetSyncedChains
   | SuccessExit
   | ErrorExit(ErrorHandling.t)
-  | SetRollbackState(IO.InMemoryStore.t, ChainManager.t)
+  | SetRollbackState(InMemoryStore.t, ChainManager.t)
   | ResetRollbackState
 
 type queryChain = CheckAllChains | Chain(chain)
@@ -88,7 +90,7 @@ let updateChainFetcherCurrentBlockHeight = (chainFetcher: ChainFetcher.t, ~curre
   }
 }
 
-let updateChainMetadataTable = async (cm: ChainManager.t) => {
+let updateChainMetadataTable = async (cm: ChainManager.t, ~asyncTaskQueue: AsyncTaskQueue.t) => {
   let chainMetadataArray: array<DbFunctions.ChainMetadata.chainMetadata> =
     cm.chainFetchers
     ->ChainMap.values
@@ -114,7 +116,9 @@ let updateChainMetadataTable = async (cm: ChainManager.t) => {
       chainMetadata
     })
   //Don't await this set, it can happen in its own time
-  await DbFunctions.ChainMetadata.batchSetChainMetadataRow(~chainMetadataArray)
+  await asyncTaskQueue->AsyncTaskQueue.add(() =>
+    DbFunctions.ChainMetadata.batchSetChainMetadataRow(~chainMetadataArray)
+  )
 }
 
 let handleSetCurrentBlockHeight = (state, ~chain, ~currentBlockHeight) => {
@@ -412,7 +416,7 @@ let actionReducer = (state: t, action: action) => {
     state->handleSetCurrentBlockHeight(~chain, ~currentBlockHeight)
   | BlockRangeResponse(chain, response) => state->handleBlockRangeResponse(~chain, ~response)
   | EventBatchProcessed({
-      val,
+      latestProcessedBlocks,
       dynamicContractRegistrations: Some({registrationsReversed, unprocessedBatchReversed}),
     }) =>
     let updatedArbQueue =
@@ -437,7 +441,7 @@ let actionReducer = (state: t, action: action) => {
 
       let contractAddressMapping =
         dynamicContracts
-        ->Array.map(d => (d.contractAddress, d.contractType))
+        ->Array.map(d => (d.contractAddress, (d.contractType :> string)))
         ->ContractAddressingMap.fromArray
 
       let currentChainFetcher =
@@ -523,11 +527,11 @@ let actionReducer = (state: t, action: action) => {
 
       Prometheus.setFetchedEventsUntilHeight(~blockNumber=highestFetchedBlockOnChain, ~chain)
     })
-    let nextState = updateLatestProcessedBlocks(~state=nextState, ~latestProcessedBlocks=val)
+    let nextState = updateLatestProcessedBlocks(~state=nextState, ~latestProcessedBlocks)
     (nextState, nextTasks)
 
-  | EventBatchProcessed({val, dynamicContractRegistrations: None}) => (
-      updateLatestProcessedBlocks(~state, ~latestProcessedBlocks=val),
+  | EventBatchProcessed({latestProcessedBlocks, dynamicContractRegistrations: None}) => (
+      updateLatestProcessedBlocks(~state, ~latestProcessedBlocks),
       [UpdateChainMetaDataAndCheckForExit(NoExit), ProcessEventBatch],
     )
   | SetCurrentlyProcessing(currentlyProcessingBatch) => ({...state, currentlyProcessingBatch}, [])
@@ -543,7 +547,10 @@ let actionReducer = (state: t, action: action) => {
       let shouldExit = EventProcessing.EventsProcessed.allChainsEventsProcessedToEndblock(
         state.chainManager.chainFetchers,
       )
-        ? ExitWithSuccess
+        ? {
+            Logging.info("All chains are caught up to the endblock.")
+            ExitWithSuccess
+          }
         : NoExit
       (
         {
@@ -579,9 +586,11 @@ let actionReducer = (state: t, action: action) => {
       [NextQuery(CheckAllChains), ProcessEventBatch],
     )
   | ResetRollbackState => ({...state, rollbackState: NoRollback}, [])
-  | SuccessExit =>
-    NodeJsLocal.process->NodeJsLocal.exitWithCode(Success)
-    (state, [])
+  | SuccessExit => {
+      Logging.info("exiting with success")
+      NodeJsLocal.process->NodeJsLocal.exitWithCode(Success)
+      (state, [])
+    }
   | ErrorExit(errHandler) =>
     errHandler->ErrorHandling.log
     NodeJsLocal.process->NodeJsLocal.exitWithCode(Failure)
@@ -702,6 +711,7 @@ let injectedTaskReducer = async (
   ~waitForNewBlock,
   ~executeNextQuery,
   ~rollbackLastBlockHashesToReorgLocation,
+  ~registeredEvents,
   //required args
   state: t,
   task: task,
@@ -741,12 +751,13 @@ let injectedTaskReducer = async (
       )
     })
   | UpdateChainMetaDataAndCheckForExit(shouldExit) =>
+    let {chainManager, asyncTaskQueue} = state
     switch shouldExit {
     | ExitWithSuccess =>
-      updateChainMetadataTable(state.chainManager)
+      updateChainMetadataTable(chainManager, ~asyncTaskQueue)
       ->Promise.thenResolve(_ => dispatchAction(SuccessExit))
       ->ignore
-    | NoExit => updateChainMetadataTable(state.chainManager)->ignore
+    | NoExit => updateChainMetadataTable(chainManager, ~asyncTaskQueue)->ignore
     }
   | NextQuery(chainCheck) =>
     let fetchForChain = checkAndFetchForChain(
@@ -775,11 +786,15 @@ let injectedTaskReducer = async (
         dispatchAction(UpdateQueues(fetchStatesMap, arbitraryEventQueue))
 
         // This function is used to ensure that registering an alreday existing contract as a dynamic contract can't cause issues.
-        let checkContractIsRegistered = (~chain, ~contractAddress, ~contractName) => {
+        let checkContractIsRegistered = (
+          ~chain,
+          ~contractAddress,
+          ~contractName: Enums.ContractType.t,
+        ) => {
           let fetchState = fetchStatesMap->ChainMap.get(chain)
           fetchState->FetchState.checkContainsRegisteredContractAddress(
             ~contractAddress,
-            ~contractName,
+            ~contractName=(contractName :> string),
           )
         }
 
@@ -798,12 +813,13 @@ let injectedTaskReducer = async (
           None
         }
 
-        let inMemoryStore = rollbackInMemStore->Option.getWithDefault(IO.InMemoryStore.make())
+        let inMemoryStore = rollbackInMemStore->Option.getWithDefault(InMemoryStore.make())
         switch await EventProcessing.processEventBatch(
           ~eventBatch=batch,
           ~inMemoryStore,
           ~checkContractIsRegistered,
           ~latestProcessedBlocks,
+          ~registeredEvents,
         ) {
         | exception exn =>
           //All casese should be handled/caught before this with better user messaging.
@@ -896,4 +912,5 @@ let taskReducer = injectedTaskReducer(
   ~waitForNewBlock,
   ~executeNextQuery,
   ~rollbackLastBlockHashesToReorgLocation=ChainFetcher.rollbackLastBlockHashesToReorgLocation(_),
+  ~registeredEvents=RegisteredEvents.global,
 )

@@ -151,7 +151,7 @@ let fetchBlockRange = async (
   ~currentBlockHeight,
   ~setCurrentBlockHeight,
 ) => {
-  let logAndRaise = ErrorHandling.logAndRaise(~logger)
+  let mkLogAndRaise = ErrorHandling.mkLogAndRaise(~logger)
   try {
     let {chainConfig: {chain}, serverUrl} = self
     let {fetchStateRegisterId, fromBlock, contractAddressMapping, toBlock, ?eventFilters} = query
@@ -219,12 +219,12 @@ let fetchBlockRange = async (
           switch res {
           | Ok(Some(blockData)) => blockData
           | Ok(None) =>
-            logAndRaise(
+            mkLogAndRaise(
               Not_found,
               ~msg=`Failure, blockData for block ${heighestBlockQueried->Int.toString} unexpectedly returned None`,
             )
           | Error(e) =>
-            Helpers.ErrorMessage(HyperSync.queryErrorToMsq(e))->logAndRaise(
+            Helpers.ErrorMessage(HyperSync.queryErrorToMsq(e))->mkLogAndRaise(
               ~msg=`Failed to query blockData for block ${heighestBlockQueried->Int.toString}`,
             )
           }
@@ -242,7 +242,7 @@ let fetchBlockRange = async (
       ->ContractInterfaceManager.getAbiMapping
       ->HyperSyncClient.Decoder.make {
       | exception exn =>
-        exn->logAndRaise(
+        exn->mkLogAndRaise(
           ~msg="Failed to instantiate a decoder from hypersync client, please double check your ABI.",
         )
       | decoder => decoder
@@ -252,7 +252,7 @@ let fetchBlockRange = async (
         pageUnsafe.events,
       ) {
       | exception exn =>
-        exn->logAndRaise(
+        exn->mkLogAndRaise(
           ~msg="Failed to parse events using hypersync client, please double check your ABI.",
         )
       | parsedEvents => parsedEvents
@@ -276,6 +276,7 @@ let fetchBlockRange = async (
             ~blockTimestamp,
             ~chainId,
             ~txOrigin=item.txOrigin,
+            ~txTo=item.txTo,
           ) {
           | Ok(v) => v
           | Error(exn) =>
@@ -283,7 +284,7 @@ let fetchBlockRange = async (
               ~logger,
               ~params={"chainId": chainId, "blockNumber": blockNumber, "logIndex": logIndex},
             )
-            exn->ErrorHandling.logAndRaise(~msg="Failed to convert decoded event", ~logger)
+            exn->ErrorHandling.mkLogAndRaise(~msg="Failed to convert decoded event", ~logger)
           },
         }
       })
@@ -298,6 +299,7 @@ let fetchBlockRange = async (
           ~contractInterfaceManager,
           ~chainId,
           ~txOrigin=item.txOrigin,
+          ~txTo=item.txTo,
         ) {
         | Ok(parsed) =>
           (
@@ -317,7 +319,7 @@ let fetchBlockRange = async (
             "logIndex": logIndex,
           }
           let logger = Logging.createChildFrom(~logger, ~params)
-          exn->ErrorHandling.logAndRaise(
+          exn->ErrorHandling.mkLogAndRaise(
             ~msg="Failed to parse event with viem, please double check your ABI.",
             ~logger,
           )
@@ -342,7 +344,7 @@ let fetchBlockRange = async (
       lastBlockScannedData,
       firstBlockParentNumberAndHash: pageUnsafe.rollbackGuard->Option.map(v => {
         ReorgDetection.blockHash: v.firstParentHash,
-        blockNumber: v.firstBlockNumber - 1,
+        blockNumber: v.firstBlockNumber - 1, 
       }),
     }
 

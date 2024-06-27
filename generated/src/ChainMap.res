@@ -5,7 +5,10 @@ module Chain = {
     | Chain_137
     | Chain_59144
 
-  let all = [Chain_137, Chain_59144]
+  let all = [
+    Chain_137,
+    Chain_59144,
+  ]
 
   let toChainId = chain =>
     switch chain {

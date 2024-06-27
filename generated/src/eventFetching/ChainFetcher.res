@@ -44,12 +44,7 @@ let make = (
   }
   logger->Logging.childInfo("Initializing ChainFetcher with " ++ endpointDescription)
 
-  let fetchState = FetchState.makeRoot(
-    ~contractAddressMapping,
-    ~dynamicContracts,
-    ~startBlock,
-    ~endBlock,
-  )
+  let fetchState = FetchState.makeRoot(~contractAddressMapping, ~dynamicContracts, ~startBlock, ~endBlock)
 
   {
     logger,
@@ -153,16 +148,11 @@ let makeFromDbState = async (chainConfig: Config.chainConfig) => {
     numEventsProcessed,
     timestampCaughtUpToHeadOrEndblock,
   ) = switch chainMetadata {
-  | Some({
+  | Some({firstEventBlockNumber, latestProcessedBlock, numEventsProcessed, timestampCaughtUpToHeadOrEndblock}) => (
       firstEventBlockNumber,
       latestProcessedBlock,
       numEventsProcessed,
-      timestampCaughtUpToHeadOrEndblock,
-    }) => (
-      firstEventBlockNumber,
-      latestProcessedBlock,
-      numEventsProcessed,
-      Env.updateSyncTimeOnRestart ? None : timestampCaughtUpToHeadOrEndblock->Js.Nullable.toOption,
+      Env.updateSyncTimeOnRestart ? None : timestampCaughtUpToHeadOrEndblock->Js.Nullable.toOption
     )
   | None => (None, None, None, None)
   }
@@ -314,7 +304,7 @@ let rollbackLastBlockHashesToReorgLocation = async (
       switch res {
       | Ok(v) => v
       | Error(exn) =>
-        exn->ErrorHandling.logAndRaise(
+        exn->ErrorHandling.mkLogAndRaise(
           ~msg="Failed to fetch blockHashes for given blockNumbers during rollback",
         )
       }

@@ -40,19 +40,20 @@ module Addresses = {
   include TestHelpers_MockAddresses
 }
 
-module EventFunctions = {
-  //Note these are made into a record to make operate in the same way
-  //for Res, JS and TS.
 
+module EventFunctions = {
   /**
   The arguements that get passed to a "processEvent" helper function
   */
+  //Note these are made into a record to make operate in the same way
+  //for Res, JS and TS.
   @genType
   type eventProcessorArgs<'eventArgs> = {
     event: Types.eventLog<'eventArgs>,
     mockDb: TestHelpers_MockDb.t,
     chainId?: int,
   }
+
 
   /**
   The default chain ID to use (ethereum mainnet) if a user does not specify int the 
@@ -69,25 +70,13 @@ module EventFunctions = {
   A function composer to help create individual processEvent functions
   */
   let makeEventProcessor = (
-    ~contextCreator: Context.contextCreator<
-      'eventArgs,
-      'loaderContext,
-      'handlerContextSync,
-      'handlerContextAsync,
-    >,
-    ~getLoader: unit => Handlers.loader<_>,
-    ~eventWithContextAccessor: (
-      Types.eventLog<'eventArgs>,
-      Context.genericContextCreatorFunctions<
-        'loaderContext,
-        'handlerContextSync,
-        'handlerContextAsync,
-      >,
-    ) => Context.eventAndContext,
-    ~eventName: Types.eventName,
-    ~cb: TestHelpers_MockDb.t => unit,
+    type eventArgs,
+    ~eventMod: module(Types.Event with type eventArgs = eventArgs),
+    ~eventAccessor: Types.eventLog<eventArgs> => Types.event,
   ) => {
-    ({event, mockDb, ?chainId}) => {
+    async ({event, mockDb, ?chainId}) => {
+      let module(Event) = eventMod
+      let {eventName} = module(Event)
       RegisterHandlers.registerAllHandlers()
       //The user can specify a chainId of an event or leave it off
       //and it will default to "DEFAULT_CHAIN_ID"
@@ -96,124 +85,89 @@ module EventFunctions = {
       //Create an individual logging context for traceability
       let logger = Logging.createChild(
         ~params={
-          "Context": `Test Processor for ${eventName
-            ->S.serializeToJsonStringWith(. Types.eventNameSchema)
-            ->Result.getExn} Event`,
+          "Context": `Test Processor for ${(eventName :> string)} Event`,
           "Chain ID": chainId,
           "event": event,
         },
       )
+
+      let chain = chainId->ChainMap.Chain.fromChainId->Utils.unwrapResultExn
 
       //Deep copy the data in mockDb, mutate the clone and return the clone
       //So no side effects occur here and state can be compared between process
       //steps
       let mockDbClone = mockDb->TestHelpers_MockDb.cloneMockDb
 
-      let asyncGetters: Context.entityGetters = {
+      let asyncGetters: ContextEnv.asyncGetters = {
         getUser: async id =>
           mockDbClone.entities.user.get(id)->Belt.Option.mapWithDefault([], entity => [entity]),
       }
 
+      let registeredEvent = switch RegisteredEvents.global->RegisteredEvents.get(eventName) {
+      | Some(l) => l
+      | None =>
+        Not_found->ErrorHandling.mkLogAndRaise(
+          ~logger,
+          ~msg=`No registered handler found for ${(eventName :> string)}`,
+        )
+      }
       //Construct a new instance of an in memory store to run for the given event
-      let inMemoryStore = IO.InMemoryStore.make()
+      let inMemoryStore = InMemoryStore.make()
 
-      //Construct a context with the inMemory store for the given event to run
-      //loaders and handlers
-      let context = contextCreator(~event, ~inMemoryStore, ~chainId, ~logger, ~asyncGetters)
+      //No need to check contract is registered or return anything.
+      //The only purpose is to test the registerContract function and to
+      //add the entity to the in memory store for asserting registrations
 
-      let loaderContext = context.getLoaderContext()
-
-      let loader = getLoader()
-
-      //Run the loader, to get all the read values/contract registrations
-      //into the context
-      loader({event, context: loaderContext})
-
-      //Get all the entities are requested to be loaded from the mockDB
-      let entityBatch = context.getEntitiesToLoad()
-
-      //Load requested entities from the cloned mockDb into the inMemoryStore
-      mockDbClone->TestHelpers_MockDb.loadEntitiesToInMemStore(~entityBatch, ~inMemoryStore)
-
-      //Run the event and handler context through the eventRouter
-      //With inMemoryStore
-      let eventAndContext: Context.eventRouterEventAndContext = {
-        chainId,
-        event: eventWithContextAccessor(event, context),
+      switch registeredEvent.contractRegister {
+      | Some(contractRegister) =>
+        switch contractRegister->EventProcessing.runEventContractRegister(
+          ~logger,
+          ~event,
+          ~eventBatchQueueItem=event
+          ->eventAccessor
+          ->Types.mkEventBatchQueueItem(
+            ~chain,
+            ~logIndex=event.logIndex,
+            ~timestamp=event.blockTimestamp,
+            ~blockNumber=event.blockNumber,
+          ),
+          ~checkContractIsRegistered=(~chain as _, ~contractAddress as _, ~contractName as _) =>
+            false,
+          ~dynamicContractRegistrations=None,
+          ~eventName,
+          ~inMemoryStore,
+        ) {
+        | Ok(_) => ()
+        | Error(e) => e->ErrorHandling.logAndRaise
+        }
+      | None => () //No need to run contract registration
       }
 
-      eventAndContext->EventProcessing.eventRouter(
-        ~latestProcessedBlocks=EventProcessing.EventsProcessed.makeEmpty(),
-        ~inMemoryStore,
-        ~cb=res =>
-          switch res {
-          | Ok(_latestProcessedBlocks) =>
-            //Now that the processing is finished. Simulate writing a batch
-            //(Although in this case a batch of 1 event only) to the cloned mockDb
-            mockDbClone->TestHelpers_MockDb.writeFromMemoryStore(~inMemoryStore)
+      let latestProcessedBlocks = EventProcessing.EventsProcessed.makeEmpty()
 
-            //Return the cloned mock db
-            cb(mockDbClone)
+      switch registeredEvent.loaderHandler {
+      | Some(handler) =>
+        switch await event->EventProcessing.runEventHandler(
+          ~executeLoadLayer=TestHelpers_MockDb.executeMockDbLoadLayer(mockDbClone),
+          ~inMemoryStore,
+          ~handler,
+          ~eventMod,
+          ~chain,
+          ~logger,
+          ~latestProcessedBlocks,
+          ~asyncGetters,
+        ) {
+        | Ok(_) => ()
+        | Error(e) => e->ErrorHandling.logAndRaise
+        }
+      | None => ()//No need to run loaders or handlers
+      }
 
-          | Error(errHandler) =>
-            errHandler->ErrorHandling.log
-            errHandler->ErrorHandling.raiseExn
-          },
-      )
-    }
-  }
-
-  /**Creates a mock event processor, wrapping the callback in a Promise for async use*/
-  let makeAsyncEventProcessor = (
-    ~contextCreator,
-    ~getLoader,
-    ~eventWithContextAccessor,
-    ~eventName,
-    eventProcessorArgs,
-  ) => {
-    Promise.make((res, _rej) => {
-      makeEventProcessor(
-        ~contextCreator,
-        ~getLoader,
-        ~eventWithContextAccessor,
-        ~eventName,
-        ~cb=mockDb => res(. mockDb),
-        eventProcessorArgs,
-      )
-    })
-  }
-
-  /**
-  Creates a mock event processor, exposing the return of the callback in the return,
-  raises an exception if the handler is async
-  */
-  let makeSyncEventProcessor = (
-    ~contextCreator,
-    ~getLoader,
-    ~eventWithContextAccessor,
-    ~eventName,
-    eventProcessorArgs,
-  ) => {
-    //Dangerously set to None, nextMockDb will be set in the callback
-    let nextMockDb = ref(None)
-    makeEventProcessor(
-      ~contextCreator,
-      ~getLoader,
-      ~eventWithContextAccessor,
-      ~eventName,
-      ~cb=mockDb => nextMockDb := Some(mockDb),
-      eventProcessorArgs,
-    )
-
-    //The callback is called synchronously so nextMockDb should be set.
-    //In the case it's not set it would mean that the user is using an async handler
-    //in which case we want to error and alert the user.
-    switch nextMockDb.contents {
-    | Some(mockDb) => mockDb
-    | None =>
-      Js.Exn.raiseError(
-        "processEvent failed because handler is not synchronous, please use processEventAsync instead",
-      )
+      //In mem store can still contatin raw events and dynamic contracts for the
+      //testing framework in cases where either contract register or loaderHandler
+      //is None
+      mockDbClone->TestHelpers_MockDb.writeFromMemoryStore(~inMemoryStore)
+      mockDbClone
     }
   }
 
@@ -230,6 +184,7 @@ module EventFunctions = {
     transactionHash?: string,
     transactionIndex?: int,
     txOrigin?: option<Ethers.ethAddress>,
+    txTo?: option<Ethers.ethAddress>,
     logIndex?: int,
   }
 
@@ -250,12 +205,14 @@ module EventFunctions = {
       ?transactionIndex,
       ?logIndex,
       ?txOrigin,
+      ?txTo,
     } =
       mockEventData->Belt.Option.getWithDefault({})
 
     {
       params,
       txOrigin: txOrigin->Belt.Option.flatMap(i => i),
+      txTo: txTo->Belt.Option.flatMap(i => i),
       chainId: chainId->Belt.Option.getWithDefault(1),
       blockNumber: blockNumber->Belt.Option.getWithDefault(0),
       blockTimestamp: blockTimestamp->Belt.Option.getWithDefault(0),
@@ -268,28 +225,15 @@ module EventFunctions = {
   }
 }
 
+
 module Greeter = {
   module NewGreeting = {
-    @genType
-    let processEvent = EventFunctions.makeSyncEventProcessor(
-      ~contextCreator=Context.GreeterContract.NewGreetingEvent.contextCreator,
-      ~getLoader=Handlers.GreeterContract.NewGreeting.getLoader,
-      ~eventWithContextAccessor=(event, context) => Context.GreeterContract_NewGreetingWithContext(
-        event,
-        context,
-      ),
-      ~eventName=Types.Greeter_NewGreeting,
-    )
+    let eventAccessor = event => Types.Greeter_NewGreeting(event)
 
     @genType
-    let processEventAsync = EventFunctions.makeAsyncEventProcessor(
-      ~contextCreator=Context.GreeterContract.NewGreetingEvent.contextCreator,
-      ~getLoader=Handlers.GreeterContract.NewGreeting.getLoader,
-      ~eventWithContextAccessor=(event, context) => Context.GreeterContract_NewGreetingWithContext(
-        event,
-        context,
-      ),
-      ~eventName=Types.Greeter_NewGreeting,
+    let processEvent = EventFunctions.makeEventProcessor(
+      ~eventAccessor,
+      ~eventMod=module(Types.Greeter.NewGreeting),
     )
 
     @genType
@@ -301,11 +245,16 @@ module Greeter = {
 
     @genType
     let createMockEvent = args => {
-      let {?user, ?greeting, ?mockEventData} = args
+      let {
+        ?user,
+        ?greeting,
+        ?mockEventData,
+      } = args
 
-      let params: Types.GreeterContract.NewGreetingEvent.eventArgs = {
-        user: user->Belt.Option.getWithDefault(TestHelpers_MockAddresses.defaultAddress),
-        greeting: greeting->Belt.Option.getWithDefault("foo"),
+      let params: Types.Greeter.NewGreeting.eventArgs = 
+      {
+       user: user->Belt.Option.getWithDefault(TestHelpers_MockAddresses.defaultAddress),
+       greeting: greeting->Belt.Option.getWithDefault("foo"),
       }
 
       EventFunctions.makeEventMocker(~params, ~mockEventData)
@@ -313,26 +262,12 @@ module Greeter = {
   }
 
   module ClearGreeting = {
-    @genType
-    let processEvent = EventFunctions.makeSyncEventProcessor(
-      ~contextCreator=Context.GreeterContract.ClearGreetingEvent.contextCreator,
-      ~getLoader=Handlers.GreeterContract.ClearGreeting.getLoader,
-      ~eventWithContextAccessor=(
-        event,
-        context,
-      ) => Context.GreeterContract_ClearGreetingWithContext(event, context),
-      ~eventName=Types.Greeter_ClearGreeting,
-    )
+    let eventAccessor = event => Types.Greeter_ClearGreeting(event)
 
     @genType
-    let processEventAsync = EventFunctions.makeAsyncEventProcessor(
-      ~contextCreator=Context.GreeterContract.ClearGreetingEvent.contextCreator,
-      ~getLoader=Handlers.GreeterContract.ClearGreeting.getLoader,
-      ~eventWithContextAccessor=(
-        event,
-        context,
-      ) => Context.GreeterContract_ClearGreetingWithContext(event, context),
-      ~eventName=Types.Greeter_ClearGreeting,
+    let processEvent = EventFunctions.makeEventProcessor(
+      ~eventAccessor,
+      ~eventMod=module(Types.Greeter.ClearGreeting),
     )
 
     @genType
@@ -343,13 +278,19 @@ module Greeter = {
 
     @genType
     let createMockEvent = args => {
-      let {?user, ?mockEventData} = args
+      let {
+        ?user,
+        ?mockEventData,
+      } = args
 
-      let params: Types.GreeterContract.ClearGreetingEvent.eventArgs = {
-        user: user->Belt.Option.getWithDefault(TestHelpers_MockAddresses.defaultAddress),
+      let params: Types.Greeter.ClearGreeting.eventArgs = 
+      {
+       user: user->Belt.Option.getWithDefault(TestHelpers_MockAddresses.defaultAddress),
       }
 
       EventFunctions.makeEventMocker(~params, ~mockEventData)
     }
   }
+
 }
+

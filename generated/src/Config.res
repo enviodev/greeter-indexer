@@ -85,12 +85,14 @@ let isUnorderedMultichainMode =
 let db: Postgres.poolConfig = {
   host: Env.Db.host,
   port: Env.Db.port,
-  user: Env.Db.user,
+  username: Env.Db.user,
   password: Env.Db.password,
   database: Env.Db.database,
   ssl: Env.Db.ssl,
   // TODO: think how we want to pipe these logs to pino.
-  onnotice: Env.userLogLevel == #warn || Env.userLogLevel == #error ? None : Some(() => ()),
+  onnotice: ?(Env.userLogLevel == #warn || Env.userLogLevel == #error ? None : Some(_str => ())),
+  transform: {undefined: Null},
+  max: 2,
 }
 
 let getSyncConfig = ({
@@ -126,9 +128,10 @@ let getConfig = (chain: ChainMap.Chain.t) =>
   switch chain {
   | Chain_137 => {
       confirmedBlockThreshold: 200,
-      syncSource: HyperSync("https://polygon.hypersync.xyz"),
+      syncSource: 
+      HyperSync("https://polygon.hypersync.xyz"),
       startBlock: 45336336,
-      endBlock: None,
+      endBlock:  None ,
       chain: Chain_137,
       contracts: [
         {
@@ -136,16 +139,20 @@ let getConfig = (chain: ChainMap.Chain.t) =>
           abi: Abis.greeterAbi->Ethers.makeAbi,
           addresses: [
             "0x9D02A17dE4E68545d3a58D3a20BbBE0399E05c9c"->Ethers.getAddressFromStringUnsafe,
-          ],
-          events: [Greeter_NewGreeting, Greeter_ClearGreeting],
+            ],
+            events: [
+            Greeter_NewGreeting,
+            Greeter_ClearGreeting,
+            ],
         },
       ],
     }
   | Chain_59144 => {
       confirmedBlockThreshold: 200,
-      syncSource: HyperSync("https://linea.hypersync.xyz"),
+      syncSource: 
+      HyperSync("https://linea.hypersync.xyz"),
       startBlock: 367801,
-      endBlock: None,
+      endBlock:  None ,
       chain: Chain_59144,
       contracts: [
         {
@@ -153,8 +160,11 @@ let getConfig = (chain: ChainMap.Chain.t) =>
           abi: Abis.greeterAbi->Ethers.makeAbi,
           addresses: [
             "0xdEe21B97AB77a16B4b236F952e586cf8408CF32A"->Ethers.getAddressFromStringUnsafe,
-          ],
-          events: [Greeter_NewGreeting, Greeter_ClearGreeting],
+            ],
+            events: [
+            Greeter_NewGreeting,
+            Greeter_ClearGreeting,
+            ],
         },
       ],
     }

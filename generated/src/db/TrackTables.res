@@ -76,7 +76,7 @@ let clearHasuraMetadata = async () => {
   }
 }
 
-let trackFunction = async () => {
+let trackGetEntityHistoryFilterFunction = async () => {
   let body = {
     "type": "pg_track_function",
     "args": {
@@ -110,8 +110,8 @@ let trackFunction = async () => {
     })
   | Ok(case) =>
     let msg = switch case {
-    | QuerySucceeded => "Table Tracked"
-    | AlreadyDone => "Table Already Tracked"
+    | QuerySucceeded => "Function Tracked"
+    | AlreadyDone => "Function Already Tracked"
     }
     Logging.trace({
       "msg": msg,
@@ -424,25 +424,53 @@ let createEntityRelationship = async (
 
 let trackAllTables = async () => {
   Logging.info("Tracking tables in Hasura")
+
   let _ = await clearHasuraMetadata()
-  let _ = await trackTable(~tableName="raw_events")
-  let _ = await createSelectPermissions(~tableName="raw_events")
-  let _ = await trackTable(~tableName="chain_metadata")
-  let _ = await createSelectPermissions(~tableName="chain_metadata")
-  let _ = await trackTable(~tableName="dynamic_contract_registry")
-  let _ = await createSelectPermissions(~tableName="dynamic_contract_registry")
-  let _ = await trackTable(~tableName="persisted_state")
-  let _ = await createSelectPermissions(~tableName="persisted_state")
-  let _ = await trackTable(~tableName="entity_history")
-  let _ = await createSelectPermissions(~tableName="entity_history")
-  let _ = await trackTable(~tableName="entity_history_filter")
-  let _ = await createSelectPermissions(~tableName="entity_history_filter")
-  let _ = await trackFunction()
-  let _ = await trackTable(~tableName="event_sync_state")
-  let _ = await createSelectPermissions(~tableName="event_sync_state")
+  await [TablesStatic.allTables, Entities.allTables]
+  ->Belt.Array.concatMany
+  ->Utils.awaitEach(async ({tableName}) => {
+    await trackTable(~tableName)
+    await createSelectPermissions(~tableName)
+  })
+
+  let _ = await trackGetEntityHistoryFilterFunction()
   let _ = await createEntityHistoryObjectRelationship()
   let _ = await createRawEventsArrayRelationship()
   let _ = await createEntityHistoryFilterObjectRelationship()
-  let _ = await trackTable(~tableName="User")
-  let _ = await createSelectPermissions(~tableName="User")
+
+  await Entities.allTables
+  ->Utils.awaitEach(async table => {
+    let {tableName} = table
+    //Set array relationships
+    await table
+    ->Table.getDerivedFromFields
+    ->Utils.awaitEach(async derivedFromField => {
+      //determines the actual name of the underlying relational field (if it's an entity mapping then suffixes _id for eg.)
+      let relationalFieldName =
+        Entities.schema->Schema.getDerivedFromFieldName(derivedFromField)->Utils.unwrapResultExn
+
+      await createEntityRelationship(
+        ~tableName,
+        ~relationshipType="array",
+        ~isDerivedFrom=true,
+        ~objectName=derivedFromField.fieldName,
+        ~relationalKey=relationalFieldName,
+        ~mappedEntity=derivedFromField.derivedFromEntity,
+      )
+    })
+
+    //Set object relationships
+    await table
+    ->Table.getLinkedEntityFields
+    ->Utils.awaitEach(async ((field, linkedEntityName)) => {
+      await createEntityRelationship(
+        ~tableName,
+        ~relationshipType="object",
+        ~isDerivedFrom=false,
+        ~objectName=field.fieldName,
+        ~relationalKey=field.fieldName,
+        ~mappedEntity=linkedEntityName,
+      )
+    })
+  })
 }
