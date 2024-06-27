@@ -14,7 +14,7 @@ let make = (~maxQueueSize): t => {
 
 let insertCallbackAwaitPromise = (queue: SDSL.Queue.t<unit => unit>): promise<unit> => {
   Promise.make((resolve, _reject) => {
-    queue->SDSL.Queue.push(() => resolve(. ()))->ignore
+    queue->SDSL.Queue.push(() => resolve())->ignore
   })
 }
 

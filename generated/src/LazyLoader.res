@@ -19,7 +19,7 @@ type asyncMap<'a> = {
   // The promises we return to callers. We satisfy them asynchronously.
   externalPromises: dict<promise<'a>>,
   // The handled used to populate the external promises once we have loaded their data.
-  resolvers: dict<(. 'a) => unit>,
+  resolvers: dict<'a => unit>,
   // The keys currently being loaded
   inProgress: Belt.MutableSet.Int.t,
   // Keys  for items that we have not started loading yet.
@@ -72,7 +72,7 @@ let rec loadNext = async (am: asyncMap<'a>, k: int) => {
   let awaitTaskPromiseAndLoadNextWithTimeout = async () => {
     let val = await Promise.race([am.loaderFn(k), timeoutAfter(am._timeoutMillis)])
     // Resolve the external promise
-    am.resolvers->Js.Dict.get(key)->Belt.Option.map(r => r(. val))->ignore
+    am.resolvers->Js.Dict.get(key)->Belt.Option.map(r => r(val))->ignore
 
     // Track that it is no longer in progress
     am.inProgress->Belt.MutableSet.Int.remove(k)

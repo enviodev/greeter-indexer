@@ -82,10 +82,10 @@ let makeAppState = (globalState: GlobalState.t): EnvioInkApp.appState => {
           : cf.currentBlockHeight
 
       let progress: ChainData.progress = if hasProcessedToEndblock {
-      // If the endblock has been reached then set the progress to synced.
-      // if there's chains that have no events in the block range start->end, 
-      // it's possible there are no events in that block  range (ie firstEventBlockNumber = None)
-      // This ensures TUI still displays synced in this case
+        // If the endblock has been reached then set the progress to synced.
+        // if there's chains that have no events in the block range start->end,
+        // it's possible there are no events in that block  range (ie firstEventBlockNumber = None)
+        // This ensures TUI still displays synced in this case
         let {
           firstEventBlockNumber,
           latestProcessedBlock,
@@ -175,8 +175,8 @@ let main = async () => {
     gsManager->GlobalStateManager.dispatchTask(ProcessEventBatch)
   } catch {
   | e => {
-    e->ErrorHandling.make(~msg="Failed at initialization")->ErrorHandling.log
-    NodeJsLocal.process->NodeJsLocal.exitWithCode(Failure)
+      e->ErrorHandling.make(~msg="Failed at initialization")->ErrorHandling.log
+      NodeJsLocal.process->NodeJsLocal.exitWithCode(Failure)
     }
   }
 }

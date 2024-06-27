@@ -24,7 +24,7 @@ let processQueue = async (~logger=?, self) => {
 
 let add = (~logger=?, self, fn) => {
   Promise.make((res, _) => {
-    let wrappedFn = () => fn()->Promise.thenResolve(() => res(. ()))
+    let wrappedFn = () => fn()->Promise.thenResolve(() => res())
     let _size = self.queue->SDSL.Queue.push(wrappedFn)
     let _ = self->processQueue(~logger?)
   })

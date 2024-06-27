@@ -51,12 +51,12 @@ let createPromiseWithHandles = () => {
 
   let resolve = (val: 'a) => {
     let res = resolveRef.contents->Belt.Option.getUnsafe
-    res(. val)
+    res(val)
   }
 
   let reject = (exn: exn) => {
     let rej = rejectRef.contents->Belt.Option.getUnsafe
-    rej(. exn)
+    rej(exn)
   }
 
   {
@@ -111,4 +111,3 @@ let awaitEach = async (arr: array<'a>, fn: 'a => promise<unit>) => {
     await item->fn
   }
 }
-

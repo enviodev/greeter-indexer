@@ -1,14 +1,14 @@
 open Belt
 
 module LoadActionMap = {
-  type loadAction<'entity> = {resolve: (. option<'entity>) => unit}
+  type loadAction<'entity> = {resolve: option<'entity> => unit}
 
   type key = string
   type value<'entity> = array<loadAction<'entity>>
   type t<'entity> = dict<value<'entity>>
-  let empty: unit => t<'entity> = Js.Dict.empty
+  let empty: unit => t<'entity> = RescriptCore.Dict.make
   let getIds = (map: t<'entity>) => map->Js.Dict.keys
-  let entries: t<'entity> => array<(key, value<'entity>)> = Js.Dict.entries
+  let entries: t<'entity> => array<(key, value<'entity>)> = RescriptCore.Dict.toArray
 
   let add = (map: t<'entity>, ~entityId, ~resolve) => {
     let loadCallback = {
@@ -21,18 +21,16 @@ module LoadActionMap = {
   }
 
   let get: (t<'entity>, 'entity) => option<value<'entity>> = (map, entity) =>
-    map->Js.Dict.get(Obj.magic(entity)["id"])
+    map->Js.Dict.get(X.magic(entity)["id"])
 
   let deleteKeyUnsafe: (t<'entity>, string) => unit = %raw(`
     function(dict, key) {
       delete dict[key];
     }
-    `)
+  `)
 }
 
-type t = {
-  user: ref<LoadActionMap.t<Entities.User.t>>,
-}
+type t = {user: ref<LoadActionMap.t<Entities.User.t>>}
 
 let make = () => {
   user: ref(LoadActionMap.empty()),
@@ -70,7 +68,7 @@ let executeLoadActionMap = (
         //Set the entity in the in memory store
         inMemTable->InMemoryTable.Entity.initValue(
           ~allowOverWriteEntity=false,
-          ~key=Obj.magic(entity)["id"],
+          ~key=X.magic(entity)["id"],
           ~entity=Some(entity),
         )
       })
@@ -106,7 +104,7 @@ let executeLoadLayer = async (loadLayer, ~inMemoryStore: InMemoryStore.t) => {
       //each of the entities in the load layer
       loadLayer.user->executeLoadActionMap(
         ~inMemTable=inMemoryStore.user,
-        ~batchLoadIds=Entities.batchRead(DbFunctions.sql, ~entityMod=module(Entities.User)),
+        ~batchLoadIds=Entities.batchRead(~entityMod=module(Entities.User))(DbFunctions.sql, _),
       ),
     ]->Promise.all
 

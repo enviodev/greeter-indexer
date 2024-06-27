@@ -657,15 +657,14 @@ let executeNextQuery = (
   }
 }
 
-let checkAndFetchForChain = async (
+let checkAndFetchForChain = (
   //Used for dependency injection for tests
   ~waitForNewBlock,
   ~executeNextQuery,
   //required args
   ~state,
   ~dispatchAction,
-  chain,
-) => {
+) => async chain => {
   let chainFetcher = state.chainManager.chainFetchers->ChainMap.get(chain)
   let {fetchState, chainWorker, logger, currentBlockHeight, isFetchingBatch} = chainFetcher
 
@@ -706,12 +705,13 @@ let checkAndFetchForChain = async (
   }
 }
 
-let injectedTaskReducer = async (
+let injectedTaskReducer = (
   //Used for dependency injection for tests
   ~waitForNewBlock,
   ~executeNextQuery,
   ~rollbackLastBlockHashesToReorgLocation,
   ~registeredEvents,
+) => async (
   //required args
   state: t,
   task: task,

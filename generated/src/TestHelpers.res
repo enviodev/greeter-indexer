@@ -40,20 +40,19 @@ module Addresses = {
   include TestHelpers_MockAddresses
 }
 
-
 module EventFunctions = {
+  //Note these are made into a record to make operate in the same way
+  //for Res, JS and TS.
+
   /**
   The arguements that get passed to a "processEvent" helper function
   */
-  //Note these are made into a record to make operate in the same way
-  //for Res, JS and TS.
   @genType
   type eventProcessorArgs<'eventArgs> = {
     event: Types.eventLog<'eventArgs>,
     mockDb: TestHelpers_MockDb.t,
     chainId?: int,
   }
-
 
   /**
   The default chain ID to use (ethereum mainnet) if a user does not specify int the 
@@ -148,7 +147,7 @@ module EventFunctions = {
       switch registeredEvent.loaderHandler {
       | Some(handler) =>
         switch await event->EventProcessing.runEventHandler(
-          ~executeLoadLayer=TestHelpers_MockDb.executeMockDbLoadLayer(mockDbClone),
+          ~executeLoadLayer=TestHelpers_MockDb.executeMockDbLoadLayer(mockDbClone, ...),
           ~inMemoryStore,
           ~handler,
           ~eventMod,
@@ -160,7 +159,7 @@ module EventFunctions = {
         | Ok(_) => ()
         | Error(e) => e->ErrorHandling.logAndRaise
         }
-      | None => ()//No need to run loaders or handlers
+      | None => () //No need to run loaders or handlers
       }
 
       //In mem store can still contatin raw events and dynamic contracts for the
@@ -225,7 +224,6 @@ module EventFunctions = {
   }
 }
 
-
 module Greeter = {
   module NewGreeting = {
     let eventAccessor = event => Types.Greeter_NewGreeting(event)
@@ -245,16 +243,11 @@ module Greeter = {
 
     @genType
     let createMockEvent = args => {
-      let {
-        ?user,
-        ?greeting,
-        ?mockEventData,
-      } = args
+      let {?user, ?greeting, ?mockEventData} = args
 
-      let params: Types.Greeter.NewGreeting.eventArgs = 
-      {
-       user: user->Belt.Option.getWithDefault(TestHelpers_MockAddresses.defaultAddress),
-       greeting: greeting->Belt.Option.getWithDefault("foo"),
+      let params: Types.Greeter.NewGreeting.eventArgs = {
+        user: user->Belt.Option.getWithDefault(TestHelpers_MockAddresses.defaultAddress),
+        greeting: greeting->Belt.Option.getWithDefault("foo"),
       }
 
       EventFunctions.makeEventMocker(~params, ~mockEventData)
@@ -278,19 +271,13 @@ module Greeter = {
 
     @genType
     let createMockEvent = args => {
-      let {
-        ?user,
-        ?mockEventData,
-      } = args
+      let {?user, ?mockEventData} = args
 
-      let params: Types.Greeter.ClearGreeting.eventArgs = 
-      {
-       user: user->Belt.Option.getWithDefault(TestHelpers_MockAddresses.defaultAddress),
+      let params: Types.Greeter.ClearGreeting.eventArgs = {
+        user: user->Belt.Option.getWithDefault(TestHelpers_MockAddresses.defaultAddress),
       }
 
       EventFunctions.makeEventMocker(~params, ~mockEventData)
     }
   }
-
 }
-

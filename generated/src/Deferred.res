@@ -225,10 +225,10 @@ let asPromise = (self: t<'a>): promise<'a> => {
   Promise.make((res, rej) => {
     self
     ->thenResolve(val => {
-      res(. val)
+      res(val)
     })
     ->catch(exn => {
-      rej(. exn)
+      rej(exn)
       reject(exn)
     })
     ->ignore

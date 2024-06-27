@@ -8,7 +8,7 @@ let headers = {
 }
 
 type hasuraErrorResponse = {code: string, error: string, path: string}
-let hasuraErrorResponseSchema = S.object((. s) => {
+let hasuraErrorResponseSchema = S.object(s => {
   code: s.field("code", S.string),
   error: s.field("error", S.string),
   path: s.field("path", S.string),
@@ -438,8 +438,7 @@ let trackAllTables = async () => {
   let _ = await createRawEventsArrayRelationship()
   let _ = await createEntityHistoryFilterObjectRelationship()
 
-  await Entities.allTables
-  ->Utils.awaitEach(async table => {
+  await Entities.allTables->Utils.awaitEach(async table => {
     let {tableName} = table
     //Set array relationships
     await table

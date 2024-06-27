@@ -1,6 +1,4 @@
-open Belt
-
-@genType 
+@genType
 type rawEventsKey = {
   chainId: int,
   eventId: string,
@@ -9,7 +7,7 @@ type rawEventsKey = {
 let hashRawEventsKey = (key: rawEventsKey) =>
   EventUtils.getEventIdKeyString(~chainId=key.chainId, ~eventId=key.eventId)
 
-@genType 
+@genType
 type dynamicContractRegistryKey = {
   chainId: int,
   contractAddress: Ethers.ethAddress,
@@ -30,7 +28,7 @@ type t = {
 }
 
 let makeWithRollBackEventIdentifier = (rollBackEventIdentifier): t => {
-  eventSyncState: InMemoryTable.make(~hash=Int.toString),
+  eventSyncState: InMemoryTable.make(~hash=v => v->RescriptCore.Int.toString),
   rawEvents: InMemoryTable.make(~hash=hashRawEventsKey),
   dynamicContractRegistry: InMemoryTable.make(~hash=hashDynamicContractRegistryKey),
   user: InMemoryTable.Entity.make(),

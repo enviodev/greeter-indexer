@@ -1,4 +1,3 @@
-
 /***** TAKE NOTE ******
 This file module is a hack to get genType to work!
 
@@ -61,14 +60,10 @@ type rec t = {
 }
 
 // Each user defined entity will be in this record with all the store or "mockdb" operators
-@genType
-and entities = {
-    @as("User") user: entityStoreOperations<Entities.User.t>,
-  }
+@genType and entities = {@as("User") user: entityStoreOperations<Entities.User.t>}
 // User defined entities always have a string for an id which is used as the
 // key for entity stores
-@genType
-and entityStoreOperations<'entity> = storeOperations<string, 'entity>
+@genType and entityStoreOperations<'entity> = storeOperations<string, 'entity>
 // all the operator functions a user can access on an entity in the mock db
 // stores refer to the the module that MakeStore functor outputs in IO.res
 @genType
@@ -91,7 +86,7 @@ let makeStoreOperatorEntity = (
 ): storeOperations<Types.id, 'entity> => {
   let {get, values, set} = module(InMemoryTable.Entity)
 
-  let get = inMemoryStore->getStore->get
+  let get = get(inMemoryStore->getStore, _)
 
   let getAll = () =>
     inMemoryStore
@@ -134,7 +129,7 @@ let makeStoreOperatorMeta = (
 ): storeOperations<'key, 'value> => {
   let {get, values, set} = module(InMemoryTable)
 
-  let get = inMemoryStore->getStore->get
+  let get = get(inMemoryStore->getStore, _)
   // unit => array<StoreState.value>
   let getAll = () => inMemoryStore->getStore->values->Array.map(row => row)
 
@@ -191,18 +186,20 @@ let rec makeWithInMemoryStore: InMemoryStore.t => t = (inMemoryStore: InMemorySt
   )
 
   let entities = {
-      user: {
-        makeStoreOperatorEntity(
-          ~inMemoryStore,
-          ~makeMockDb=makeWithInMemoryStore,
-          ~getStore=db => db.user,
-          ~getKey=({id}) => id,
-        )
-      },
+    user: {
+      makeStoreOperatorEntity(
+        ~inMemoryStore,
+        ~makeMockDb=makeWithInMemoryStore,
+        ~getStore=db => db.user,
+        ~getKey=({id}) => id,
+      )
+    },
   }
 
   {__dbInternal__: inMemoryStore, entities, rawEvents, eventSyncState, dynamicContractRegistry}
 }
+
+//Note: It's called createMockDb over "make" to make it more intuitive in JS and TS
 
 /**
 The constructor function for a mockDb. Call it and then set up the inital state by calling
@@ -210,8 +207,7 @@ any of the set functions it provides access to. A mockDb will be passed into a p
 helper. Note, process event helpers will not mutate the mockDb but return a new mockDb with
 new state so you can compare states before and after.
 */
-//Note: It's called createMockDb over "make" to make it more intuitive in JS and TS
-@genType 
+@genType
 let createMockDb = () => makeWithInMemoryStore(InMemoryStore.make())
 
 /**
@@ -228,7 +224,7 @@ let cloneMockDb = (self: t) => {
   clonedInternalDb->makeWithInMemoryStore
 }
 
-let batchRead = (entity: entityStoreOperations<'entity>, ids) =>
+let batchRead = (entity: entityStoreOperations<'entity>) => ids =>
   ids->Array.keepMap(id => entity.get(id))->Promise.resolve
 
 /**
@@ -331,11 +327,10 @@ let writeFromMemoryStore = (mockDb: t, ~inMemoryStore: InMemoryStore.t) => {
     },
   )
 
-//ENTITY EXECUTION
+  //ENTITY EXECUTION
   mockDb->executeRowsEntity(
     ~inMemoryStore,
     ~getInMemTable=self => {self.user},
     ~getKey=entity => entity.id,
   )
 }
-

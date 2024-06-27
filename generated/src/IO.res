@@ -89,12 +89,12 @@ let executeSetEntityWithHistory = (
       ~entityHistoriesToSet=Belt.Array.concatMany(entityHistoryItemsToSet),
     ),
     if entitiesToSet->Array.length > 0 {
-      sql->Entities.batchSet(entitiesToSet, ~entityMod)
+      sql->Entities.batchSet(~entityMod)(entitiesToSet)
     } else {
       Promise.resolve()
     },
     if idsToDelete->Array.length > 0 {
-      sql->Entities.batchDelete(idsToDelete, ~entityMod)
+      sql->Entities.batchDelete(~entityMod)(idsToDelete)
     } else {
       Promise.resolve()
     },
@@ -128,9 +128,9 @@ let executeDbFunctionsEntity = (
 
   let promises =
     (
-      entitiesToSet->Array.length > 0 ? [sql->Entities.batchSet(entitiesToSet, ~entityMod)] : []
+      entitiesToSet->Array.length > 0 ? [sql->Entities.batchSet(~entityMod)(entitiesToSet)] : []
     )->Belt.Array.concat(
-      idsToDelete->Array.length > 0 ? [sql->Entities.batchDelete(idsToDelete, ~entityMod)] : [],
+      idsToDelete->Array.length > 0 ? [sql->Entities.batchDelete(~entityMod)(idsToDelete)] : [],
     )
 
   promises->Promise.all->Promise.thenResolve(_ => ())
@@ -142,21 +142,25 @@ let executeBatch = async (sql, ~inMemoryStore: InMemoryStore.t) => {
     : executeDbFunctionsEntity
 
   let setEventSyncState = executeSet(
+    _,
     ~dbFunction=DbFunctions.EventSyncState.batchSet,
     ~items=inMemoryStore.eventSyncState->InMemoryTable.values,
   )
 
   let setRawEvents = executeSet(
+    _,
     ~dbFunction=DbFunctions.RawEvents.batchSet,
     ~items=inMemoryStore.rawEvents->InMemoryTable.values,
   )
 
   let setDynamicContracts = executeSet(
+    _,
     ~dbFunction=DbFunctions.DynamicContractRegistry.batchSet,
     ~items=inMemoryStore.dynamicContractRegistry->InMemoryTable.values,
   )
 
   let setUsers = entityDbExecutionComposer(
+    _,
     ~entityMod=module(Entities.User),
     ~rows=inMemoryStore.user->InMemoryTable.values,
   )
@@ -170,7 +174,7 @@ let executeBatch = async (sql, ~inMemoryStore: InMemoryStore.t) => {
       DbFunctions.EntityHistory.deleteAllEntityHistoryAfterEventIdentifier,
       DbFunctions.RawEvents.deleteAllRawEventsAfterEventIdentifier,
       DbFunctions.DynamicContractRegistry.deleteAllDynamicContractRegistrationsAfterEventIdentifier,
-    ]->Belt.Array.map(fn => fn(~eventIdentifier))
+    ]->Belt.Array.map(fn => fn(_, ~eventIdentifier))
   | None => []
   }
 
@@ -178,12 +182,7 @@ let executeBatch = async (sql, ~inMemoryStore: InMemoryStore.t) => {
     Belt.Array.concat(
       //Rollback tables need to happen first in the traction
       rollbackTables,
-      [
-        setEventSyncState,
-        setRawEvents,
-        setDynamicContracts,
-        setUsers,
-      ],
+      [setEventSyncState, setRawEvents, setDynamicContracts, setUsers],
     )->Belt.Array.map(dbFunc => sql->dbFunc)
   })
 
@@ -216,17 +215,21 @@ module RollBack = {
 
     reorgData->Belt.Array.forEach(e => {
       switch e {
-      //Where previousEntity is Some, 
+      //Where previousEntity is Some,
       //set the value with the eventIdentifier that set that value initially
       | {previousEntity: Some({entity: User(entity), eventIdentifier}), entityId} =>
         inMemStore.user->InMemoryTable.Entity.set(
           Set(entity)->Types.mkEntityUpdate(~eventIdentifier, ~entityId, ~shouldSaveHistory=false),
         )
-      //Where previousEntity is None, 
+      //Where previousEntity is None,
       //delete it with the eventIdentifier of the rollback event
       | {previousEntity: None, entityType: User, entityId} =>
         inMemStore.user->InMemoryTable.Entity.set(
-          Delete->Types.mkEntityUpdate(~eventIdentifier=rollBackEventIdentifier, ~entityId, ~shouldSaveHistory=false),
+          Delete->Types.mkEntityUpdate(
+            ~eventIdentifier=rollBackEventIdentifier,
+            ~entityId,
+            ~shouldSaveHistory=false,
+          ),
         )
       }
     })

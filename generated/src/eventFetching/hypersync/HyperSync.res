@@ -344,7 +344,9 @@ module BlockData = {
 
     // If the block is not found, retry the query. This can occur since replicas of hypersync might not hack caught up yet
     if res->Belt.Result.mapWithDefault(0, res => res.nextBlock) <= blockNumber {
-      logger->Logging.childWarn(`Block #${blockNumber->Belt.Int.toString} not found in hypersync. Retrying query in 100ms.`)
+      logger->Logging.childWarn(
+        `Block #${blockNumber->Belt.Int.toString} not found in hypersync. Retrying query in 100ms.`,
+      )
       await Time.resolvePromiseAfterDelay(~delayMilliseconds=100)
       await queryBlockData(~serverUrl, ~blockNumber)
     } else {

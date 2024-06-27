@@ -1,9 +1,9 @@
 exception UndefinedEvent(string)
 let eventStringToEvent = (eventName: string, contractName: string): Types.eventName => {
   switch (eventName, contractName) {
-    | ("NewGreeting", "Greeter") => Greeter_NewGreeting
-    | ("ClearGreeting", "Greeter") => Greeter_ClearGreeting
-    | _ => UndefinedEvent(eventName)->raise
+  | ("NewGreeting", "Greeter") => Greeter_NewGreeting
+  | ("ClearGreeting", "Greeter") => Greeter_ClearGreeting
+  | _ => UndefinedEvent(eventName)->raise
   }
 }
 
@@ -11,7 +11,7 @@ module Greeter = {
   module NewGreeting = {
     let convertViemDecodedEvent: Viem.decodedEvent<'a> => Viem.decodedEvent<
       Types.Greeter.NewGreeting.eventArgs,
-    > = Obj.magic
+    > = X.magic
 
     let convertLogViem = (
       decodedEvent: Viem.decodedEvent<Types.Greeter.NewGreeting.eventArgs>,
@@ -21,10 +21,9 @@ module Greeter = {
       ~txOrigin: option<Ethers.ethAddress>,
       ~txTo: option<Ethers.ethAddress>,
     ) => {
-      let params: Types.Greeter.NewGreeting.eventArgs = 
-      {
-          user: decodedEvent.args.user,
-          greeting: decodedEvent.args.greeting,
+      let params: Types.Greeter.NewGreeting.eventArgs = {
+        user: decodedEvent.args.user,
+        greeting: decodedEvent.args.greeting,
       }
 
       let eventLog: Types.eventLog<Types.Greeter.NewGreeting.eventArgs> = {
@@ -44,26 +43,22 @@ module Greeter = {
       Types.Greeter_NewGreeting(eventLog)
     }
 
-    let convertDecodedEventParams = ( 
+    let convertDecodedEventParams = (
       decodedEvent: HyperSyncClient.Decoder.decodedEvent,
     ): Types.Greeter.NewGreeting.eventArgs => {
-      
       open Belt
-      let fields = [
-          "user",
-          "greeting",
-      ]
+      let fields = ["user", "greeting"]
       let values =
         Array.concat(decodedEvent.indexed, decodedEvent.body)->Array.map(
           HyperSyncClient.Decoder.toUnderlying,
         )
-      Array.zip(fields, values)->Js.Dict.fromArray->Obj.magic
+      Array.zip(fields, values)->Js.Dict.fromArray->X.magic
     }
   }
   module ClearGreeting = {
     let convertViemDecodedEvent: Viem.decodedEvent<'a> => Viem.decodedEvent<
       Types.Greeter.ClearGreeting.eventArgs,
-    > = Obj.magic
+    > = X.magic
 
     let convertLogViem = (
       decodedEvent: Viem.decodedEvent<Types.Greeter.ClearGreeting.eventArgs>,
@@ -73,9 +68,8 @@ module Greeter = {
       ~txOrigin: option<Ethers.ethAddress>,
       ~txTo: option<Ethers.ethAddress>,
     ) => {
-      let params: Types.Greeter.ClearGreeting.eventArgs = 
-      {
-          user: decodedEvent.args.user,
+      let params: Types.Greeter.ClearGreeting.eventArgs = {
+        user: decodedEvent.args.user,
       }
 
       let eventLog: Types.eventLog<Types.Greeter.ClearGreeting.eventArgs> = {
@@ -95,23 +89,19 @@ module Greeter = {
       Types.Greeter_ClearGreeting(eventLog)
     }
 
-    let convertDecodedEventParams = ( 
+    let convertDecodedEventParams = (
       decodedEvent: HyperSyncClient.Decoder.decodedEvent,
     ): Types.Greeter.ClearGreeting.eventArgs => {
-      
       open Belt
-      let fields = [
-          "user",
-      ]
+      let fields = ["user"]
       let values =
         Array.concat(decodedEvent.indexed, decodedEvent.body)->Array.map(
           HyperSyncClient.Decoder.toUnderlying,
         )
-      Array.zip(fields, values)->Js.Dict.fromArray->Obj.magic
+      Array.zip(fields, values)->Js.Dict.fromArray->X.magic
     }
   }
 }
-
 
 exception ParseError(Ethers.Interface.parseLogError)
 exception UnregisteredContract(Ethers.ethAddress)
@@ -152,26 +142,30 @@ let convertDecodedEvent = (
   | None => Error(UnregisteredContract(log.address))
   | Some(contractName) =>
     let event = switch Types.eventTopicToEventName(contractName, log.topics[0]) {
-        | Greeter_NewGreeting =>
-            event
-            ->Greeter.NewGreeting.convertDecodedEventParams
-            ->makeEventLog(~log, ~blockTimestamp, ~chainId, ~txOrigin, ~txTo)
-            ->Types.Greeter_NewGreeting
-        | Greeter_ClearGreeting =>
-            event
-            ->Greeter.ClearGreeting.convertDecodedEventParams
-            ->makeEventLog(~log, ~blockTimestamp, ~chainId, ~txOrigin, ~txTo)
-            ->Types.Greeter_ClearGreeting
+    | Greeter_NewGreeting =>
+      event
+      ->Greeter.NewGreeting.convertDecodedEventParams
+      ->makeEventLog(~log, ~blockTimestamp, ~chainId, ~txOrigin, ~txTo)
+      ->Types.Greeter_NewGreeting
+    | Greeter_ClearGreeting =>
+      event
+      ->Greeter.ClearGreeting.convertDecodedEventParams
+      ->makeEventLog(~log, ~blockTimestamp, ~chainId, ~txOrigin, ~txTo)
+      ->Types.Greeter_ClearGreeting
     }
     Ok(event)
   }
 }
 
-let parseEvent = (~log, ~blockTimestamp, ~contractInterfaceManager, ~chainId, ~txOrigin, ~txTo): Belt.Result.t<
-  Types.event,
-  _,
-> => {
- let decodedEventResult = contractInterfaceManager->ContractInterfaceManager.parseLogViem(~log)
+let parseEvent = (
+  ~log,
+  ~blockTimestamp,
+  ~contractInterfaceManager,
+  ~chainId,
+  ~txOrigin,
+  ~txTo,
+): Belt.Result.t<Types.event, _> => {
+  let decodedEventResult = contractInterfaceManager->ContractInterfaceManager.parseLogViem(~log)
   switch decodedEventResult {
   | Error(e) =>
     switch e {
@@ -186,14 +180,14 @@ let parseEvent = (~log, ~blockTimestamp, ~contractInterfaceManager, ~chainId, ~t
     | None => Error(UnregisteredContract(log.address))
     | Some(contractName) =>
       let event = switch eventStringToEvent(decodedEvent.eventName, contractName) {
-        | Greeter_NewGreeting =>
-            decodedEvent
-            ->Greeter.NewGreeting.convertViemDecodedEvent
-            ->Greeter.NewGreeting.convertLogViem(~log, ~blockTimestamp, ~chainId, ~txOrigin, ~txTo)
-        | Greeter_ClearGreeting =>
-            decodedEvent
-            ->Greeter.ClearGreeting.convertViemDecodedEvent
-            ->Greeter.ClearGreeting.convertLogViem(~log, ~blockTimestamp, ~chainId, ~txOrigin, ~txTo)
+      | Greeter_NewGreeting =>
+        decodedEvent
+        ->Greeter.NewGreeting.convertViemDecodedEvent
+        ->Greeter.NewGreeting.convertLogViem(~log, ~blockTimestamp, ~chainId, ~txOrigin, ~txTo)
+      | Greeter_ClearGreeting =>
+        decodedEvent
+        ->Greeter.ClearGreeting.convertViemDecodedEvent
+        ->Greeter.ClearGreeting.convertLogViem(~log, ~blockTimestamp, ~chainId, ~txOrigin, ~txTo)
       }
 
       Ok(event)
@@ -238,7 +232,6 @@ let decodeRawEventWith = (
   })
 }
 
-
 let parseRawEvent = (
   rawEvent: TablesStatic.RawEvents.t,
   ~chain,
@@ -246,21 +239,21 @@ let parseRawEvent = (
   ~txTo: option<Ethers.ethAddress>,
 ): result<Types.eventBatchQueueItem, S.error> => {
   switch rawEvent.eventType {
-      | Greeter_NewGreeting =>
-      rawEvent->decodeRawEventWith(
-        ~schema=Types.Greeter.NewGreeting.eventArgsSchema,
-        ~variantAccessor=event => Types.Greeter_NewGreeting(event),
-        ~chain,
-        ~txOrigin,
-        ~txTo,
-      )
-      | Greeter_ClearGreeting =>
-      rawEvent->decodeRawEventWith(
-        ~schema=Types.Greeter.ClearGreeting.eventArgsSchema,
-        ~variantAccessor=event => Types.Greeter_ClearGreeting(event),
-        ~chain,
-        ~txOrigin,
-        ~txTo,
-      )
+  | Greeter_NewGreeting =>
+    rawEvent->decodeRawEventWith(
+      ~schema=Types.Greeter.NewGreeting.eventArgsSchema,
+      ~variantAccessor=event => Types.Greeter_NewGreeting(event),
+      ~chain,
+      ~txOrigin,
+      ~txTo,
+    )
+  | Greeter_ClearGreeting =>
+    rawEvent->decodeRawEventWith(
+      ~schema=Types.Greeter.ClearGreeting.eventArgsSchema,
+      ~variantAccessor=event => Types.Greeter_ClearGreeting(event),
+      ~chain,
+      ~txOrigin,
+      ~txTo,
+    )
   }
 }

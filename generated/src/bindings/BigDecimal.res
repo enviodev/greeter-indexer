@@ -1,16 +1,16 @@
 @genType.import(("bignumber.js", "default"))
 type rec t = {
-  toString: (. unit) => string,
-  toFixed: (. int) => string,
-  plus: (. t) => t,
-  minus: (. t) => t,
-  times: (. t) => t,
-  div: (. t) => t,
-  isEqualTo: (. t) => bool,
-  gt: (. t) => bool,
-  gte: (. t) => bool,
-  lt: (. t) => bool,
-  lte: (. t) => bool,
+  toString: unit => string,
+  toFixed: int => string,
+  plus: t => t,
+  minus: t => t,
+  times: t => t,
+  div: t => t,
+  isEqualTo: t => bool,
+  gt: t => bool,
+  gte: t => bool,
+  lt: t => bool,
+  lte: t => bool,
 }
 
 // Constructors
@@ -47,11 +47,11 @@ let one = fromInt(1)
 let schema =
   S.string
   ->S.setName("BigDecimal")
-  ->S.transform((. s) => {
-    parser: (. string) =>
+  ->S.transform(s => {
+    parser: string =>
       switch string->fromString {
       | Some(bigDecimal) => bigDecimal
-      | None => s.fail(. "The string is not valid BigDecimal")
+      | None => s.fail("The string is not valid BigDecimal")
       },
-    serializer: (. bigDecimal) => bigDecimal.toString(),
+    serializer: bigDecimal => bigDecimal.toString(),
   })

@@ -104,9 +104,12 @@ let runEventContractRegister = (
       )
 
     let addToDynamicContractRegistrations =
-      eventBatchQueueItem->addToDynamicContractRegistrations(
-        ~registeringEventBlockNumber=event.blockNumber,
-        ~registeringEventLogIndex=event.logIndex,
+      eventBatchQueueItem->(
+        addToDynamicContractRegistrations(
+          ~registeringEventBlockNumber=event.blockNumber,
+          ~registeringEventLogIndex=event.logIndex,
+          ...
+        )
       )
 
     let val = switch (dynamicContracts, dynamicContractRegistrations) {
@@ -177,7 +180,7 @@ let addEventToRawEvents = (
     blockHash,
     blockTimestamp,
     eventType: eventName,
-    params: switch event.params->S.serializeToJsonStringWith(. eventArgsSchema) {
+    params: switch event.params->S.serializeToJsonStringWith(eventArgsSchema) {
     | Ok(jsonString) => jsonString
     | Error(e) => S.Error.raise(e)
     },
@@ -206,14 +209,13 @@ let updateEventSyncState = (
   )
 }
 
-let readEntity = (entityMod, id) => Entities.batchRead(DbFunctions.sql, [id], ~entityMod)
+let readEntity = (~entityMod) => id => Entities.batchRead(~entityMod)(DbFunctions.sql, [id])
 let asyncGetters: ContextEnv.asyncGetters = {
- getUser: readEntity(module(Entities.User)),
+  getUser: readEntity(~entityMod=module(Entities.User)),
 }
 
 let runEventHandler = (
   type eventArgs,
-  //Injection params for testing framework
   ~executeLoadLayer=LoadLayer.executeLoadLayer,
   ~asyncGetters=asyncGetters,
   //Required params
@@ -332,7 +334,9 @@ let rec registerDynamicContracts = (
       //If an item has already been registered, it would have been
       //put back on the arbitrary events queue and is now being reprocessed
       dynamicContractRegistrations
-      ->Option.map(addToUnprocessedBatch(eventBatchQueueItem))
+      ->Option.map(dynamicContractRegistrations =>
+        addToUnprocessedBatch(eventBatchQueueItem, dynamicContractRegistrations)
+      )
       ->Ok
     } else {
       let runEventContractRegister = (eventName, event) =>
@@ -351,7 +355,9 @@ let rec registerDynamicContracts = (
           )
         | None =>
           dynamicContractRegistrations
-          ->Option.map(addToUnprocessedBatch(eventBatchQueueItem))
+          ->Option.map(dynamicContractRegistrations =>
+            addToUnprocessedBatch(eventBatchQueueItem, dynamicContractRegistrations)
+          )
           ->Ok
         }
 
@@ -439,13 +445,15 @@ let runHandlers = (
     for i in 0 to eventBatch->Array.length - 1 {
       let {event, chain} = eventBatch[i]->Option.getUnsafe
 
-      let runHandler = getHandlerRunner(
-        ~inMemoryStore,
-        ~logger,
-        ~chain,
-        ~latestProcessedBlocks=latestProcessedBlocks.contents,
-        ~registeredEvents,
-      )
+      let runHandler =
+        getHandlerRunner(
+          ~inMemoryStore,
+          ~logger,
+          ~chain,
+          ~latestProcessedBlocks=latestProcessedBlocks.contents,
+          ~registeredEvents,
+          ...
+        )
 
       latestProcessedBlocks :=
         switch event {

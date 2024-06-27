@@ -57,22 +57,19 @@ let getEventId = (event: Types.eventLog<'a>) => {
   EventUtils.packEventIndex(~blockNumber=event.blockNumber, ~logIndex=event.logIndex)
 }
 
-let make = (
-  ~chain,
-  ~event: Types.eventLog<'eventArgs>,
-  ~eventName: Enums.EventType.t,
-  ~logger,
-) => {
+let make = (~chain, ~event: Types.eventLog<'eventArgs>, ~eventName: Enums.EventType.t, ~logger) => {
   let {blockNumber, logIndex, transactionHash} = event
-  let logger = logger->Logging.createChildFrom(
-    ~logger=_,
-    ~params={
-      "context": (eventName :> string),
-      "chainId": chain->ChainMap.Chain.toChainId,
-      "block": blockNumber,
-      "logIndex": logIndex,
-      "txHash": transactionHash,
-    },
+  let logger = logger->(
+    Logging.createChildFrom(
+      ~logger=_,
+      ~params={
+        "context": (eventName :> string),
+        "chainId": chain->ChainMap.Chain.toChainId,
+        "block": blockNumber,
+        "logIndex": logIndex,
+        "txHash": transactionHash,
+      },
+    )
   )
 
   {
@@ -87,10 +84,7 @@ let make = (
 let getAddedDynamicContractRegistrations = (contextEnv: t<'eventArgs>) =>
   contextEnv.addedDynamicContractRegistrations
 
-let makeDynamicContractRegisterFn = (
-  ~contextEnv: t<'eventArgs>,
-  ~contractName,
-  ~inMemoryStore,
+let makeDynamicContractRegisterFn = (~contextEnv: t<'eventArgs>, ~contractName, ~inMemoryStore) => (
   contractAddress: Ethers.ethAddress,
 ) => {
   let {event, chain, addedDynamicContractRegistrations} = contextEnv
@@ -113,7 +107,7 @@ let makeDynamicContractRegisterFn = (
   )
 }
 
-let makeLoader = (loadLayerRef, ~entityIdsMap, ~entityName, entityId) => {
+let makeLoader = (loadLayerRef, ~entityIdsMap, ~entityName) => entityId => {
   entityIdsMap->EntityIdsMap.addId(~entityId, ~entityName)
   Promise.make((resolve, _reject) => {
     loadLayerRef.contents->LoadLayer.LoadActionMap.add(~entityId, ~resolve)
@@ -163,7 +157,7 @@ let makeEntityHandlerContext = (
 
 let getContractRegisterContext = (contextEnv, ~inMemoryStore) => {
   //TODO only add contracts we've registered for the event in the config
-  addGreeter:  makeDynamicContractRegisterFn(~contextEnv, ~inMemoryStore, ~contractName=Greeter),
+  addGreeter: makeDynamicContractRegisterFn(~contextEnv, ~inMemoryStore, ~contractName=Greeter),
 }
 
 let getLoaderContext = (contextEnv: t<'eventArgs>, ~loadLayer: LoadLayer.t): loaderContext => {
@@ -171,14 +165,12 @@ let getLoaderContext = (contextEnv: t<'eventArgs>, ~loadLayer: LoadLayer.t): loa
   {
     log: logger->getUserLogger,
     user: {
-      get: makeLoader(loadLayer.user, ~entityName=User,  ~entityIdsMap),
+      get: makeLoader(loadLayer.user, ~entityName=User, ~entityIdsMap),
     },
   }
 }
 
-type asyncGetters = {
- getUser: Types.id => promise<array<Entities.User.t>>,
-}
+type asyncGetters = {getUser: Types.id => promise<array<Entities.User.t>>}
 
 let getHandlerContext = (context, ~inMemoryStore: InMemoryStore.t, ~asyncGetters) => {
   let {entityIdsMap, event, logger} = context

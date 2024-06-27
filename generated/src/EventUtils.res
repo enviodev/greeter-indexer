@@ -99,7 +99,7 @@ let waitForNextBlock = async (provider: Ethers.JsonRpcProvider.t) => {
   await Promise.make((resolve, _reject) => {
     provider->Ethers.JsonRpcProvider.onBlock(blockNumber => {
       provider->Ethers.JsonRpcProvider.removeOnBlockEventListener
-      resolve(. blockNumber)
+      resolve(blockNumber)
     })
   })
 }

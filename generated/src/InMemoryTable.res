@@ -9,8 +9,7 @@ let make = (~hash): t<'key, 'val> => {dict: Js.Dict.empty(), hash}
 
 let set = (self: t<'key, 'val>, key, value) => self.dict->Js.Dict.set(key->self.hash, value)
 
-let get = (self: t<'key, 'val>, key: 'key) =>
-  self.dict->Js.Dict.get(key->self.hash)
+let get = (self: t<'key, 'val>, key: 'key) => self.dict->Js.Dict.get(key->self.hash)
 
 let values = (self: t<'key, 'val>) => self.dict->Js.Dict.values
 

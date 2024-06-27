@@ -7,7 +7,7 @@ type id = string
 @genType
 type contractRegistrations = {
   //TODO only add contracts we've registered for the event in the config
-  addGreeter: (Ethers.ethAddress) => unit,
+  addGreeter: Ethers.ethAddress => unit,
 }
 
 @genType
@@ -25,7 +25,6 @@ type entityHandlerContext<'entity> = {
   set: 'entity => unit,
   deleteUnsafe: id => unit,
 }
-
 
 @genType
 type handlerContext = {
@@ -106,16 +105,19 @@ type eventName = Enums.EventType.t
 
 let eventNameSchema = Enums.EventType.schema
 
-let eventNameToString = (eventName: eventName) => switch eventName {
-    | Greeter_NewGreeting => "NewGreeting"
-    | Greeter_ClearGreeting => "ClearGreeting"
-}
+let eventNameToString = (eventName: eventName) =>
+  switch eventName {
+  | Greeter_NewGreeting => "NewGreeting"
+  | Greeter_ClearGreeting => "ClearGreeting"
+  }
 
 exception UnknownEvent(string, string)
 let eventTopicToEventName = (contractName, topic0): Enums.EventType.t =>
   switch (contractName, topic0) {
-  | ("Greeter", "0xcbc299eeb7a1a982d3674880645107c4fe48c3227163794e48540a7522722354") => Greeter_NewGreeting
-  | ("Greeter", "0xe1e180b6e25ff275b0367c82e362c09bda277674444b5549ebbd00406583882d") => Greeter_ClearGreeting
+  | ("Greeter", "0xcbc299eeb7a1a982d3674880645107c4fe48c3227163794e48540a7522722354") =>
+    Greeter_NewGreeting
+  | ("Greeter", "0xe1e180b6e25ff275b0367c82e362c09bda277674444b5549ebbd00406583882d") =>
+    Greeter_ClearGreeting
   | (contractName, topic0) => UnknownEvent(contractName, topic0)->raise
   }
 
@@ -130,17 +132,15 @@ module Greeter = {
     let eventName = Enums.EventType.Greeter_NewGreeting
 
     @genType
-    type eventArgs = 
-    {
+    type eventArgs = {
       user: Ethers.ethAddress,
       greeting: string,
     }
 
-    let eventArgsSchema = 
-      S.object((. s) => {
-        user: s.field("user", Ethers.ethAddressSchema),
-        greeting: s.field("greeting", S.string),
-      })
+    let eventArgsSchema = S.object(s => {
+      user: s.field("user", Ethers.ethAddressSchema),
+      greeting: s.field("greeting", S.string),
+    })
 
     @genType.as("Greeter_NewGreeting_EventLog")
     type log = eventLog<eventArgs>
@@ -150,20 +150,15 @@ module Greeter = {
     let eventName = Enums.EventType.Greeter_ClearGreeting
 
     @genType
-    type eventArgs = 
-    {
-      user: Ethers.ethAddress,
-    }
+    type eventArgs = {user: Ethers.ethAddress}
 
-    let eventArgsSchema = 
-      S.object((. s) => {
-        user: s.field("user", Ethers.ethAddressSchema),
-      })
+    let eventArgsSchema = S.object(s => {
+      user: s.field("user", Ethers.ethAddressSchema),
+    })
 
     @genType.as("Greeter_ClearGreeting_EventLog")
     type log = eventLog<eventArgs>
   }
-
 }
 
 type event =
@@ -178,7 +173,7 @@ type eventBatchQueueItem = {
   chain: ChainMap.Chain.t,
   blockNumber: int,
   logIndex: int,
-  event,
+  event: event,
   //Default to false, if an event needs to
   //be reprocessed after it has loaded dynamic contracts
   //This gets set to true and does not try and reload events
