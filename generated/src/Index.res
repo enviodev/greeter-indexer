@@ -74,7 +74,9 @@ let makeAppState = (globalState: GlobalState.t): EnvioInkApp.appState => {
     ->ChainMap.values
     ->Array.map(cf => {
       let {numEventsProcessed, fetchState, numBatchesFetched} = cf
-      let latestFetchedBlockNumber = FetchState.getLatestFullyFetchedBlock(fetchState).blockNumber
+      let latestFetchedBlockNumber = PartitionedFetchState.getLatestFullyFetchedBlock(
+        fetchState,
+      ).blockNumber
       let hasProcessedToEndblock = cf->ChainFetcher.hasProcessedToEndblock
       let currentBlockHeight =
         cf->ChainFetcher.hasProcessedToEndblock
@@ -154,8 +156,6 @@ let main = async () => {
     RegisterHandlers.registerAllHandlers()
     let mainArgs: mainArgs = process->argv->Yargs.hideBin->Yargs.yargs->Yargs.argv
     let shouldUseTui = !(mainArgs.tuiOff->Belt.Option.getWithDefault(Env.tuiOffEnvVar))
-    // let shouldSyncFromRawEvents = mainArgs.syncFromRawEvents->Belt.Option.getWithDefault(false)
-
     let chainManager = await ChainManager.makeFromDbState(~configs=Config.config)
     let globalState: GlobalState.t = GlobalState.make(~chainManager)
     let stateUpdatedHook = if shouldUseTui {

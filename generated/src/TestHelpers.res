@@ -236,7 +236,9 @@ module Greeter = {
 
     @genType
     type createMockArgs = {
+      @as("user")
       user?: Ethers.ethAddress,
+      @as("greeting")
       greeting?: string,
       mockEventData?: EventFunctions.mockEventData,
     }
@@ -265,6 +267,7 @@ module Greeter = {
 
     @genType
     type createMockArgs = {
+      @as("user")
       user?: Ethers.ethAddress,
       mockEventData?: EventFunctions.mockEventData,
     }

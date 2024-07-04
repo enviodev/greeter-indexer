@@ -133,7 +133,9 @@ module Greeter = {
 
     @genType
     type eventArgs = {
+      @as("user")
       user: Ethers.ethAddress,
+      @as("greeting")
       greeting: string,
     }
 
@@ -150,7 +152,10 @@ module Greeter = {
     let eventName = Enums.EventType.Greeter_ClearGreeting
 
     @genType
-    type eventArgs = {user: Ethers.ethAddress}
+    type eventArgs = {
+      @as("user")
+      user: Ethers.ethAddress,
+    }
 
     let eventArgsSchema = S.object(s => {
       user: s.field("user", Ethers.ethAddressSchema),

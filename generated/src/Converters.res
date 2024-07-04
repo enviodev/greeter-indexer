@@ -46,13 +46,16 @@ module Greeter = {
     let convertDecodedEventParams = (
       decodedEvent: HyperSyncClient.Decoder.decodedEvent,
     ): Types.Greeter.NewGreeting.eventArgs => {
-      open Belt
-      let fields = ["user", "greeting"]
-      let values =
-        Array.concat(decodedEvent.indexed, decodedEvent.body)->Array.map(
-          HyperSyncClient.Decoder.toUnderlying,
-        )
-      Array.zip(fields, values)->Js.Dict.fromArray->X.magic
+      {
+        user: decodedEvent.body
+        ->Js.Array2.unsafe_get(0)
+        ->HyperSyncClient.Decoder.toUnderlying
+        ->X.magic,
+        greeting: decodedEvent.body
+        ->Js.Array2.unsafe_get(1)
+        ->HyperSyncClient.Decoder.toUnderlying
+        ->X.magic,
+      }
     }
   }
   module ClearGreeting = {
@@ -92,13 +95,12 @@ module Greeter = {
     let convertDecodedEventParams = (
       decodedEvent: HyperSyncClient.Decoder.decodedEvent,
     ): Types.Greeter.ClearGreeting.eventArgs => {
-      open Belt
-      let fields = ["user"]
-      let values =
-        Array.concat(decodedEvent.indexed, decodedEvent.body)->Array.map(
-          HyperSyncClient.Decoder.toUnderlying,
-        )
-      Array.zip(fields, values)->Js.Dict.fromArray->X.magic
+      {
+        user: decodedEvent.body
+        ->Js.Array2.unsafe_get(0)
+        ->HyperSyncClient.Decoder.toUnderlying
+        ->X.magic,
+      }
     }
   }
 }
