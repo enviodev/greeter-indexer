@@ -178,11 +178,21 @@ module DynamicContractRegistry = {
   external readEntities: (
     Postgres.sql,
     array<dynamicContractRegistryRowId>,
-  ) => promise<array<Js.Json.t>> = "readDynamicContractRegistryEntities"
+  ) => promise<array<TablesStatic.DynamicContractRegistry.t>> =
+    "readDynamicContractRegistryEntities"
 
-  type contractTypeAndAddress = TablesStatic.DynamicContractRegistry.t
+  type contractTypeAndAddress = {
+    @as("contract_address") contractAddress: Ethers.ethAddress,
+    @as("contract_type") contractType: string,
+    @as("event_id") eventId: bigint,
+  }
 
-  let contractTypeAndAddressSchema = TablesStatic.DynamicContractRegistry.schema
+  let contractTypeAndAddressSchema = S.object(s => {
+    contractAddress: s.field("contract_address", Ethers.ethAddressSchema),
+    contractType: s.field("contract_type", S.string),
+    eventId: s.field("event_id", BigInt.schema),
+  })
+
   let contractTypeAndAddressArraySchema = S.array(contractTypeAndAddressSchema)
 
   ///Returns an array with 1 block number (the highest processed on the given chainId)
@@ -230,7 +240,7 @@ let entityHistoryItemSchema = S.object(s => {
   previous_chain_id: s.field("previous_chain_id", S.null(S.int)),
   previous_block_number: s.field("previous_block_number", S.null(S.int)),
   previous_log_index: s.field("previous_log_index", S.null(S.int)),
-  params: s.field("params", S.null(S.json)),
+  params: s.field("params", S.null(S.json(~validate=false))),
   entity_type: s.field("entity_type", S.string),
   entity_id: s.field("entity_id", S.string),
 })
@@ -286,7 +296,7 @@ module EntityHistory = {
     block_timestamp: s.field("block_timestamp", S.null(S.int)),
     block_number: s.field("block_number", S.null(S.int)),
     log_index: s.field("log_index", S.null(S.int)),
-    val: s.field("val", S.null(S.json)),
+    val: s.field("val", S.null(S.json(~validate=false))),
   })
 
   type previousEntity = {

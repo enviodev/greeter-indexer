@@ -137,9 +137,10 @@ let executeDbFunctionsEntity = (
 }
 
 let executeBatch = async (sql, ~inMemoryStore: InMemoryStore.t) => {
-  let entityDbExecutionComposer = Config.shouldRollbackOnReorg
-    ? executeSetEntityWithHistory
-    : executeDbFunctionsEntity
+  let entityDbExecutionComposer =
+    Config.getConfig()->Config.shouldRollbackOnReorg
+      ? executeSetEntityWithHistory
+      : executeDbFunctionsEntity
 
   let setEventSyncState = executeSet(
     _,

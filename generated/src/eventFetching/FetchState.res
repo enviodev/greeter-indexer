@@ -281,8 +281,6 @@ let applyFilters = (eventBatchQueueItem, ~eventFilters) =>
 
 type nextQuery = {
   fetchStateRegisterId: id,
-  //used to id the partition of the fetchstate
-  partitionId: int,
   fromBlock: int,
   toBlock: int,
   contractAddressMapping: ContractAddressingMap.mapping,
@@ -340,7 +338,6 @@ let getNextQueryFromNode = (
   {registerType, latestFetchedBlock, contractAddressMapping}: t,
   ~toBlock,
   ~eventFilters,
-  ~partitionId,
 ) => {
   let (id, endBlock) = switch registerType {
   | RootRegister({endBlock}) => (Root, endBlock)
@@ -352,7 +349,6 @@ let getNextQueryFromNode = (
   }
   let toBlock = minOfOption(toBlock, endBlock)
   {
-    partitionId,
     fetchStateRegisterId: id,
     fromBlock,
     toBlock,
@@ -389,19 +385,15 @@ Or with a toBlock of the nextRegistered latestBlockNumber to catch up and merge 
 Errors if nextRegistered dynamic contract has a lower latestFetchedBlock than the current as this would be
 an invalid state.
 */
-let getNextQuery = (~eventFilters=?, ~currentBlockHeight, ~partitionId, self: t) => {
+let getNextQuery = (~eventFilters=?, ~currentBlockHeight, self: t) => {
   let maybeMerged = self->pruneAndMergeNextRegistered
   let self = maybeMerged->Option.getWithDefault(self)
 
   let nextQuery = switch self.registerType {
   | RootRegister({endBlock}) =>
-    self->getNextQueryFromNode(
-      ~toBlock={minOfOption(currentBlockHeight, endBlock)},
-      ~eventFilters,
-      ~partitionId,
-    )
+    self->getNextQueryFromNode(~toBlock={minOfOption(currentBlockHeight, endBlock)}, ~eventFilters)
   | DynamicContractRegister(_, {latestFetchedBlock}) =>
-    self->getNextQueryFromNode(~toBlock=latestFetchedBlock.blockNumber, ~eventFilters, ~partitionId)
+    self->getNextQueryFromNode(~toBlock=latestFetchedBlock.blockNumber, ~eventFilters)
   }
 
   switch nextQuery {
@@ -540,53 +532,15 @@ let getEarliestEvent = (self: t) => {
   self->popQItemAtRegisterId(~id=registerWithEarliestQItem)->Utils.unwrapResultExn
 }
 
-let makeInternal = (
-  ~registerType,
-  ~staticContracts,
-  ~dynamicContractRegistrations: array<DbFunctions.DynamicContractRegistry.contractTypeAndAddress>,
-  ~startBlock,
-  ~logger,
-): t => {
-  let contractAddressMapping = ContractAddressingMap.make()
-
-  staticContracts->Belt.Array.forEach(((contractName, address)) => {
-    Logging.childTrace(
-      logger,
-      {
-        "msg": "adding contract address",
-        "contractName": contractName,
-        "address": address,
-      },
-    )
-
-    contractAddressMapping->ContractAddressingMap.addAddress(~name=contractName, ~address)
-  })
-
-  let dynamicContracts = dynamicContractRegistrations->Array.reduce(DynamicContractsMap.empty, (
-    accum,
-    {contractType, contractAddress, eventId},
-  ) => {
-    //add address to contract address mapping
-    contractAddressMapping->ContractAddressingMap.addAddress(
-      ~name=(contractType :> string),
-      ~address=contractAddress,
-    )
-
-    let dynamicContractId = EventUtils.unpackEventIndex(eventId)
-
-    accum->DynamicContractsMap.addAddress(dynamicContractId, contractAddress)
-  })
-
-  {
-    registerType,
-    latestFetchedBlock: {
-      blockTimestamp: 0,
-      blockNumber: Pervasives.max(startBlock - 1, 0),
-    },
-    contractAddressMapping,
-    dynamicContracts,
-    fetchedEventQueue: list{},
-  }
+let makeInternal = (~registerType, ~contractAddressMapping, ~dynamicContracts, ~startBlock): t => {
+  registerType,
+  latestFetchedBlock: {
+    blockTimestamp: 0,
+    blockNumber: Pervasives.max(startBlock - 1, 0),
+  },
+  contractAddressMapping,
+  dynamicContracts,
+  fetchedEventQueue: list{},
 }
 
 /**
@@ -638,15 +592,12 @@ let rec registerDynamicContract = (
   register: t,
   ~registeringEventBlockNumber,
   ~registeringEventLogIndex,
-  ~dynamicContractRegistrations: array<TablesStatic.DynamicContractRegistry.t>,
+  ~contractAddressMapping,
 ) => {
   let latestFetchedBlockNumber = registeringEventBlockNumber - 1
-
   let addToHead =
     addNewRegisterToHead(
-      ~contractAddressMapping=dynamicContractRegistrations
-      ->Array.map(d => (d.contractAddress, (d.contractType :> string)))
-      ->ContractAddressingMap.fromArray,
+      ~contractAddressMapping,
       ~registeringEventLogIndex,
       ~registeringEventBlockNumber,
       ...
@@ -660,9 +611,9 @@ let rec registerDynamicContract = (
   | DynamicContractRegister(dynamicContractId, nextRegister) =>
     nextRegister
     ->registerDynamicContract(
+      ~contractAddressMapping,
       ~registeringEventBlockNumber,
       ~registeringEventLogIndex,
-      ~dynamicContractRegistrations,
     )
     ->addNextRegister(~register, ~dynamicContractId)
   }
@@ -818,8 +769,6 @@ let isActivelyIndexing = fetchState => {
   | _ => true
   }
 }
-
-let getNumContracts = (self: t) => self.contractAddressMapping->ContractAddressingMap.addressCount
 
 /**
 Helper functions for debugging and printing

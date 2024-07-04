@@ -21,7 +21,7 @@ let make = (~chainManager) => {
   chainManager,
   maxBatchSize: Env.maxProcessBatchSize,
   maxPerChainQueueSize: {
-    let numChains = Config.config->ChainMap.size
+    let numChains = Config.getConfig().chainMap->ChainMap.size
     Env.maxEventFetchedQueueSize / numChains
   },
   indexerStartTime: Js.Date.make(),
@@ -57,8 +57,8 @@ type action =
   | EventBatchProcessed(EventProcessing.batchProcessed)
   | SetCurrentlyProcessing(bool)
   | SetCurrentlyFetchingBatch(chain, bool)
-  | SetFetchState(chain, PartitionedFetchState.t)
-  | UpdateQueues(ChainMap.t<PartitionedFetchState.t>, arbitraryEventQueue)
+  | SetFetchState(chain, FetchState.t)
+  | UpdateQueues(ChainMap.t<FetchState.t>, arbitraryEventQueue)
   | SetSyncedChains
   | SuccessExit
   | ErrorExit(ErrorHandling.t)
@@ -95,7 +95,7 @@ let updateChainMetadataTable = async (cm: ChainManager.t, ~asyncTaskQueue: Async
     cm.chainFetchers
     ->ChainMap.values
     ->Belt.Array.map(cf => {
-      let latestFetchedBlock = cf.fetchState->PartitionedFetchState.getLatestFullyFetchedBlock
+      let latestFetchedBlock = cf.fetchState->FetchState.getLatestFullyFetchedBlock
       let chainMetadata: DbFunctions.ChainMetadata.chainMetadata = {
         chainId: cf.chainConfig.chain->ChainMap.Chain.toChainId,
         startBlock: cf.chainConfig.startBlock,
@@ -192,7 +192,7 @@ let checkAndSetSyncedChains = (~nextQueueItemIsKnownNone=false, chainManager: Ch
           chainManager.arbitraryEventPriorityQueue
           ->ChainManager.getFirstArbitraryEventsItemForChain(~chain=cf.chainConfig.chain)
           ->Option.isSome //TODO this is more expensive than it needs to be
-        let queueSize = cf.fetchState->PartitionedFetchState.queueSize
+        let queueSize = cf.fetchState->FetchState.queueSize
         let hasNoMoreEventsToProcess = !hasArbQueueEvents && queueSize == 0
 
         if hasNoMoreEventsToProcess {
@@ -231,12 +231,12 @@ let updateLatestProcessedBlocks = (
         state.chainManager.arbitraryEventPriorityQueue
         ->ChainManager.getFirstArbitraryEventsItemForChain(~chain)
         ->Option.isSome //TODO this is more expensive than it needs to be
-      let queueSize = fetchState->PartitionedFetchState.queueSize
+      let queueSize = fetchState->FetchState.queueSize
 
       let hasNoMoreEventsToProcess = !hasArbQueueEvents && queueSize == 0
 
       let latestProcessedBlock = if hasNoMoreEventsToProcess {
-        PartitionedFetchState.getLatestFullyFetchedBlock(fetchState).blockNumber->Some
+        FetchState.getLatestFullyFetchedBlock(fetchState).blockNumber->Some
       } else {
         latestProcessedBlock
       }
@@ -265,7 +265,6 @@ let handleBlockRangeResponse = (state, ~chain, ~response: blockRangeFetchRespons
     reorgGuard,
     fromBlockQueried,
     fetchStateRegisterId,
-    partitionId,
     latestFetchedBlockTimestamp,
     worker,
   } = response
@@ -285,7 +284,7 @@ let handleBlockRangeResponse = (state, ~chain, ~response: blockRangeFetchRespons
       ~firstBlockParentNumberAndHash,
     )
 
-  if !hasReorgOccurred || !Config.shouldRollbackOnReorg {
+  if !hasReorgOccurred || !(Config.getConfig()->Config.shouldRollbackOnReorg) {
     if hasReorgOccurred {
       chainFetcher.logger->Logging.childWarn(
         "Reorg detected, not rolling back due to configuration",
@@ -299,7 +298,7 @@ let handleBlockRangeResponse = (state, ~chain, ~response: blockRangeFetchRespons
         ~latestFetchedBlockTimestamp,
         ~latestFetchedBlockNumber=heighestQueriedBlockNumber,
         ~fetchedEvents=parsedQueueItems->List.fromArray,
-        ~id={fetchStateId: fetchStateRegisterId, partitionId},
+        ~id=fetchStateRegisterId,
       )
       ->Utils.unwrapResultExn
       ->updateChainFetcherCurrentBlockHeight(~currentBlockHeight)
@@ -313,11 +312,11 @@ let handleBlockRangeResponse = (state, ~chain, ~response: blockRangeFetchRespons
       state.chainManager.arbitraryEventPriorityQueue
       ->ChainManager.getFirstArbitraryEventsItemForChain(~chain)
       ->Option.isSome //TODO this is more expensive than it needs to be
-    let queueSize = chainFetcher.fetchState->PartitionedFetchState.queueSize
+    let queueSize = chainFetcher.fetchState->FetchState.queueSize
     let hasNoMoreEventsToProcess = !hasArbQueueEvents && queueSize == 0
 
     let latestProcessedBlock = if hasNoMoreEventsToProcess {
-      PartitionedFetchState.getLatestFullyFetchedBlock(chainFetcher.fetchState).blockNumber->Some
+      FetchState.getLatestFullyFetchedBlock(chainFetcher.fetchState).blockNumber->Some
     } else {
       chainFetcher.latestProcessedBlock
     }
@@ -352,25 +351,26 @@ let handleBlockRangeResponse = (state, ~chain, ~response: blockRangeFetchRespons
       ~currentHeight=currentBlockHeight,
     )
 
-    let updateEndOfBlockRangeScannedDataArr = //Only update endOfBlockRangeScannedData if rollbacks are enabled
-    Config.shouldRollbackOnReorg
-      ? [
-          UpdateEndOfBlockRangeScannedData({
-            chain,
-            blockNumberThreshold: lastBlockScannedData.blockNumber -
-            chainFetcher.chainConfig.confirmedBlockThreshold,
-            blockTimestampThreshold: chainManager
-            ->ChainManager.getEarliestMultiChainTimestampInThreshold
-            ->Option.getWithDefault(0),
-            nextEndOfBlockRangeScannedData: {
-              chainId: chain->ChainMap.Chain.toChainId,
-              blockNumber: lastBlockScannedData.blockNumber,
-              blockTimestamp: lastBlockScannedData.blockTimestamp,
-              blockHash: lastBlockScannedData.blockHash,
-            },
-          }),
-        ]
-      : []
+    let updateEndOfBlockRangeScannedDataArr =
+      //Only update endOfBlockRangeScannedData if rollbacks are enabled
+      Config.getConfig()->Config.shouldRollbackOnReorg
+        ? [
+            UpdateEndOfBlockRangeScannedData({
+              chain,
+              blockNumberThreshold: lastBlockScannedData.blockNumber -
+              chainFetcher.chainConfig.confirmedBlockThreshold,
+              blockTimestampThreshold: chainManager
+              ->ChainManager.getEarliestMultiChainTimestampInThreshold
+              ->Option.getWithDefault(0),
+              nextEndOfBlockRangeScannedData: {
+                chainId: chain->ChainMap.Chain.toChainId,
+                blockNumber: lastBlockScannedData.blockNumber,
+                blockTimestamp: lastBlockScannedData.blockTimestamp,
+                blockHash: lastBlockScannedData.blockHash,
+              },
+            }),
+          ]
+        : []
 
     let nextState = {
       ...state,
@@ -440,6 +440,11 @@ let actionReducer = (state: t, action: action) => {
         dynamicContracts,
       } = registration
 
+      let contractAddressMapping =
+        dynamicContracts
+        ->Array.map(d => (d.contractAddress, (d.contractType :> string)))
+        ->ContractAddressingMap.fromArray
+
       let currentChainFetcher =
         state.chainManager.chainFetchers->ChainMap.get(registeringEventChain)
       /* strategy for TUI synced status:
@@ -485,10 +490,10 @@ let actionReducer = (state: t, action: action) => {
         : (false, None)
 
       let updatedFetchState =
-        currentChainFetcher.fetchState->PartitionedFetchState.registerDynamicContracts(
+        currentChainFetcher.fetchState->FetchState.registerDynamicContract(
+          ~contractAddressMapping,
           ~registeringEventBlockNumber,
           ~registeringEventLogIndex,
-          ~dynamicContractRegistrations=dynamicContracts,
         )
 
       let updatedChainFetcher = {
@@ -517,7 +522,7 @@ let actionReducer = (state: t, action: action) => {
     nextState.chainManager.chainFetchers
     ->ChainMap.entries
     ->Array.forEach(((chain, chainFetcher)) => {
-      let highestFetchedBlockOnChain = PartitionedFetchState.getLatestFullyFetchedBlock(
+      let highestFetchedBlockOnChain = FetchState.getLatestFullyFetchedBlock(
         chainFetcher.fetchState,
       ).blockNumber
 
@@ -666,9 +671,7 @@ let checkAndFetchForChain = (
 
   if (
     !isFetchingBatch &&
-    fetchState->PartitionedFetchState.isReadyForNextQuery(
-      ~maxQueueSize=state.maxPerChainQueueSize,
-    ) &&
+    fetchState->FetchState.isReadyForNextQuery(~maxQueueSize=state.maxPerChainQueueSize) &&
     !isRollingBack(state)
   ) {
     let (nextQuery, nextStateIfChangeRequired) =
@@ -736,7 +739,7 @@ let injectedTaskReducer = (
         ),
       ]->Array.concat(
         //only prune history if we are not saving full history
-        Config.shouldPruneHistory
+        Config.getConfig()->Config.shouldPruneHistory
           ? [
               DbFunctions.EntityHistory.deleteAllEntityHistoryOnChainBeforeThreshold(
                 sql,
@@ -790,7 +793,7 @@ let injectedTaskReducer = (
           ~contractName: Enums.ContractType.t,
         ) => {
           let fetchState = fetchStatesMap->ChainMap.get(chain)
-          fetchState->PartitionedFetchState.checkContainsRegisteredContractAddress(
+          fetchState->FetchState.checkContainsRegisteredContractAddress(
             ~contractAddress,
             ~contractName=(contractName :> string),
           )

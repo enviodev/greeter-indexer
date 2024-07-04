@@ -31,8 +31,6 @@ module ContractType = {
   @genType
   type t = | @as("Greeter") Greeter
 
-  let schema = S.literal(Greeter)
-
   let name = "CONTRACT_TYPE"
   let variants = [Greeter]
   let enum = mkEnum(~name, ~variants)
@@ -42,7 +40,8 @@ module EntityType = {
   @genType
   type t = | @as("User") User
 
-  let schema = S.literal(User)
+  let schema = S.union([S.literal(User)])
+
   let name = "ENTITY_TYPE"
   let variants = [User]
 
