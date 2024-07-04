@@ -99,52 +99,46 @@ type t = {
   chainMap: ChainMap.t<chainConfig>,
 }
 
-%%private(let configRef = ref(None))
-
-let getConfig = () =>
-  switch configRef.contents {
-  | Some(c) => c
-  | None => Js.Exn.raiseError("Config not yet loaded")
-  }
-
-let register = (
-  ~shouldRollbackOnReorg,
-  ~shouldSaveFullHistory,
-  ~shouldUseHypersyncClientDecoder,
-  ~isUnorderedMultichainMode,
-  ~getChain,
+let make = (
+  ~shouldRollbackOnReorg=false,
+  ~shouldSaveFullHistory=false,
+  ~shouldUseHypersyncClientDecoder=true,
+  ~isUnorderedMultichainMode=false,
+  ~networks=[],
 ) => {
-  if configRef.contents !== None {
-    Js.Exn.raiseError("Config already registered")
-  }
-  configRef :=
-    Some({
-      historyConfig: {
-        rollbackFlag: shouldRollbackOnReorg ? RollbackOnReorg : NoRollback,
-        historyFlag: shouldSaveFullHistory ? FullHistory : MinHistory,
-      },
-      shouldUseHypersyncClientDecoder: Env.Configurable.shouldUseHypersyncClientDecoder->Belt.Option.getWithDefault(
-        shouldUseHypersyncClientDecoder,
-      ),
-      isUnorderedMultichainMode: Env.Configurable.isUnorderedMultichainMode->Belt.Option.getWithDefault(
-        Env.Configurable.unstable__temp_unordered_head_mode->Belt.Option.getWithDefault(
-          isUnorderedMultichainMode,
-        ),
-      ),
-      chainMap: ChainMap.make(getChain),
-    })
+  historyConfig: {
+    rollbackFlag: shouldRollbackOnReorg ? RollbackOnReorg : NoRollback,
+    historyFlag: shouldSaveFullHistory ? FullHistory : MinHistory,
+  },
+  shouldUseHypersyncClientDecoder: Env.Configurable.shouldUseHypersyncClientDecoder->Belt.Option.getWithDefault(
+    shouldUseHypersyncClientDecoder,
+  ),
+  isUnorderedMultichainMode: Env.Configurable.isUnorderedMultichainMode->Belt.Option.getWithDefault(
+    Env.Configurable.unstable__temp_unordered_head_mode->Belt.Option.getWithDefault(
+      isUnorderedMultichainMode,
+    ),
+  ),
+  chainMap: networks
+  ->Js.Array2.map(n => {
+    (n.chain, n)
+  })
+  ->ChainMap.fromArray
+  ->Utils.unwrapResultExn,
 }
 
-let mock = () => {
-  {
-    historyConfig: {
-      rollbackFlag: NoRollback,
-      historyFlag: MinHistory,
-    },
-    shouldUseHypersyncClientDecoder: true,
-    isUnorderedMultichainMode: false,
-    chainMap: ChainMap.empty(),
+%%private(let generatedConfigRef = ref(None))
+
+let getConfig = () =>
+  switch generatedConfigRef.contents {
+  | Some(c) => c
+  | None => Js.Exn.raiseError("Config not yet generated")
   }
+
+let setGenerated = (config: t) => {
+  if generatedConfigRef.contents !== None {
+    Js.Exn.raiseError("Generated config already registered")
+  }
+  generatedConfigRef := Some(config)
 }
 
 let shouldRollbackOnReorg = config =>
