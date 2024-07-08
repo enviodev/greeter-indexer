@@ -1,30 +1,11 @@
-import {
-  GreeterContract_NewGreeting_loader,
-  GreeterContract_NewGreeting_handler,
-  GreeterContract_ClearGreeting_loader,
-  GreeterContract_ClearGreeting_handler,
-} from "../generated/src/Handlers.gen";
-
-import { UserEntity } from "../generated/src/Types.gen";
-
-/**
-Registers a loader that loads any values from your database that your
-NewGreeting event handler might need on the Greeter contract.
-*/
-GreeterContract_NewGreeting_loader(({ event, context }) => {
-  //The id for the "User" entity derived from params of the NewGreeting event
-  const userId = event.params.user;
-  //Try load in in a "User" entity with id of the user param on the
-  //NewGreeting event
-  context.User.load(userId);
-});
+import { Greeter, User } from "generated";
 
 /**
 Registers a handler that handles any values from the
 NewGreeting event on the Greeter contract and index these values into
 the DB.
 */
-GreeterContract_NewGreeting_handler(({ event, context }) => {
+Greeter.NewGreeting.handler(async ({ event, context }) => {
   //The id for the "User" entity
   const userId = event.params.user;
   //The greeting string that was added.
@@ -33,10 +14,10 @@ GreeterContract_NewGreeting_handler(({ event, context }) => {
   //The optional User entity that may exist already at "userId"
   //This value would be undefined in the case that it was not loaded in the
   //loader function above OR in the case where it never existed in the db
-  const currentUserEntity = context.User.get(userId);
+  const currentUserEntity = await context.User.get(userId);
 
   //Construct the userEntity that is to be set in the DB
-  const userEntity: UserEntity = currentUserEntity
+  const userEntity: User = currentUserEntity
     ? //In the case there is an existing "User" entity, update its
       //latestGreeting value, increment the numberOfGreetings and append latestGreeting
       //to the array of greetings
@@ -61,29 +42,17 @@ GreeterContract_NewGreeting_handler(({ event, context }) => {
 });
 
 /**
-Registers a loader that loads any values from your database that your
-ClearGreeting event handler might need on the Greeter contract.
-*/
-GreeterContract_ClearGreeting_loader(({ event, context }) => {
-  //The id for the "User" entity derived from params of the ClearGreeting event
-  const userId = event.params.user;
-  //Try load in in a "User" entity with id of the user param on the
-  //ClearGreeting event
-  context.User.load(userId);
-});
-
-/**
 Registers a handler that handles any values from the
 ClearGreeting event on the Greeter contract and index these values into
 the DB.
 */
-GreeterContract_ClearGreeting_handler(({ event, context }) => {
+Greeter.ClearGreeting.handler(async ({ event, context }) => {
   //The id for the "User" entity derived from params of the ClearGreeting event
   const userId = event.params.user;
   //The optional User entity that may exist already at "userId"
   //This value would be "undefined" in the case that it was not loaded in the
   //loader function above OR in the case where it never existed in the db
-  const currentUserEntity = context.User.get(userId);
+  const currentUserEntity = await context.User.get(userId);
 
   if (currentUserEntity) {
     //Only make any changes in the case that there is an existing User

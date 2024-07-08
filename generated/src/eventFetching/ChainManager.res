@@ -118,7 +118,7 @@ let makeFromDbState = async (~config: Config.t): t => {
     })
     ->Promise.all
 
-  let chainFetchers = ChainMap.fromArray(chainFetchersArr)->Utils.unwrapResultExn //Can safely unwrap since it is being mapped from Config
+  let chainFetchers = ChainMap.fromArray(chainFetchersArr)
 
   {
     isUnorderedMultichainMode: config.isUnorderedMultichainMode,
